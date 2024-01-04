@@ -5,7 +5,7 @@
 
 
 namespace {
-  void _setupLogger() {
+  void SetupLoggerForInitializationErrors() {
     CloseHandle(CreateThread(
       nullptr,
       0,
@@ -54,8 +54,11 @@ bool Initialize() {
     isError = true;
   }
 
-  _setupLogger();
-  return !isError;
+  if ( isError ) {
+    SetupLoggerForInitializationErrors();
+    return false;
+  }
+  return true;
 }
 
 BOOL WINAPI DllMain(HINSTANCE /*hinstDLL*/, DWORD fdwReason, LPVOID /*lpvReserved*/) {
