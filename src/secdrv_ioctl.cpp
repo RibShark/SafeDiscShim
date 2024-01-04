@@ -1,6 +1,3 @@
-#include <atomic>
-#include <spdlog/spdlog.h>
-
 #include "logging.h"
 #include "secdrv_ioctl.h"
 
@@ -42,7 +39,7 @@ typedef struct MainIoctlOutBuffer {
   DWORD ExtraData[0x80];
 } MainIoctlOutBuffer;
 
-std::atomic_bool hasLoggedVersion = false;
+bool hasLoggedVersion = false;
 
 void BuildVerificationData(DWORD verificationData[0x100]) {
   DWORD curValue = 0xf367ac7f;

@@ -1,15 +1,10 @@
-#include <winternl.h>
 #include <ntstatus.h>
-
-#include <MinHook.h>
-#include <spdlog/spdlog.h>
 
 #include "hooks.h"
 #include "logging.h"
 #include "secdrv_ioctl.h"
 
-decltype(NtDeviceIoControlFile)* NtDeviceIoControlFile_Orig;
-__kernel_entry NTSTATUS NTAPI NtDeviceIoControlFile_Hook(HANDLE FileHandle,
+NTSTATUS NTAPI hooks::NtDeviceIoControlFile_Hook(HANDLE FileHandle,
                                     HANDLE Event,
                                     PIO_APC_ROUTINE ApcRoutine,
                                     PVOID ApcContext,
@@ -19,6 +14,8 @@ __kernel_entry NTSTATUS NTAPI NtDeviceIoControlFile_Hook(HANDLE FileHandle,
                                     ULONG InputBufferLength,
                                     PVOID OutputBuffer,
                                     ULONG OutputBufferLength) {
+  logging::SetupLoggerIfNeeded();
+
   /* all IOCTLs will pass through this function, but it's probably fine since
    * secdrv uses unique control codes */
   if ( IoControlCode == secdrvIoctl::ioctlCodeMain ) {
@@ -41,17 +38,14 @@ __kernel_entry NTSTATUS NTAPI NtDeviceIoControlFile_Hook(HANDLE FileHandle,
   return IoStatusBlock->Status;
 }
 
-decltype(CreateFileA)* CreateFileA_Orig;
-HANDLE WINAPI CreateFileA_Hook(LPCSTR lpFileName,
+HANDLE WINAPI hooks::CreateFileA_Hook(LPCSTR lpFileName,
                                DWORD dwDesiredAccess,
                                DWORD dwShareMode,
                                LPSECURITY_ATTRIBUTES lpSecurityAttributes,
                                DWORD dwCreationDisposition,
                                DWORD dwFlagsAndAttributes,
                                HANDLE hTemplateFile) {
-  // this should be called before any of the other hooks, so setup logger here
-  if ( !logging::isLoggerSetup )
-    logging::SetupLogger();
+  logging::SetupLoggerIfNeeded();
 
   if ( !lstrcmpiA(lpFileName, R"(\\.\Secdrv)") ||
     !lstrcmpiA(lpFileName, R"(\\.\Global\SecDrv)") ) {
@@ -75,8 +69,7 @@ HANDLE WINAPI CreateFileA_Hook(LPCSTR lpFileName,
                           dwFlagsAndAttributes, hTemplateFile);
 }
 
-decltype(CreateProcessA)* CreateProcessA_Orig;
-BOOL WINAPI CreateProcessA_Hook(LPCSTR lpApplicationName,
+BOOL WINAPI hooks::CreateProcessA_Hook(LPCSTR lpApplicationName,
                                 LPSTR lpCommandLine,
                                 LPSECURITY_ATTRIBUTES lpProcessAttributes,
                                 LPSECURITY_ATTRIBUTES lpThreadAttributes,
@@ -86,6 +79,8 @@ BOOL WINAPI CreateProcessA_Hook(LPCSTR lpApplicationName,
                                 LPCSTR lpCurrentDirectory,
                                 LPSTARTUPINFOA lpStartupInfo,
                                 LPPROCESS_INFORMATION lpProcessInformation) {
+  logging::SetupLoggerIfNeeded();
+
   constexpr char dllName[] {"drvmgt.dll"};
   auto pLoadLibraryA = reinterpret_cast<LPTHREAD_START_ROUTINE>(
     GetProcAddress(GetModuleHandle("kernel32.dll"), "LoadLibraryA"));
@@ -116,38 +111,6 @@ BOOL WINAPI CreateProcessA_Hook(LPCSTR lpApplicationName,
   // we can resume the main thread
   if ( !isCreateSuspended )
     ResumeThread(lpProcessInformation->hThread);
-
-  return TRUE;
-}
-
-BOOL hooks::InstallHooks() {
-  if ( MH_Initialize() != MH_OK ) {
-    spdlog::critical("Unable to initialize MinHook");
-    return FALSE;
-  }
-
-  if ( MH_CreateHookApi(L"ntdll", "NtDeviceIoControlFile", &NtDeviceIoControlFile_Hook,
-    reinterpret_cast<LPVOID*>(&NtDeviceIoControlFile_Orig)) != MH_OK ) {
-    spdlog::critical("Unable to hook NtDeviceIoControlFile");
-    return FALSE;
-  }
-
-  if ( MH_CreateHookApi(L"kernel32", "CreateFileA", &CreateFileA_Hook,
-    reinterpret_cast<LPVOID*>(&CreateFileA_Orig)) != MH_OK ) {
-    spdlog::critical("Unable to hook CreateFileA");
-    return FALSE;
-    }
-
-  if ( MH_CreateHookApi(L"kernel32", "CreateProcessA", &CreateProcessA_Hook,
-    reinterpret_cast<LPVOID*>(&CreateProcessA_Orig)) != MH_OK ) {
-    spdlog::critical("Unable to hook CreateProcessA");
-    return FALSE;
-  }
-
-  if ( MH_EnableHook(MH_ALL_HOOKS) != MH_OK ) {
-    spdlog::critical("Unable to enable hooks");
-    return FALSE;
-  }
 
   return TRUE;
 }

@@ -1,12 +1,12 @@
 #ifndef LOGGER_H
 #define LOGGER_H
-
-#include <atomic>
+#include <spdlog/spdlog.h>
 
 namespace logging {
-  inline std::atomic_bool isLoggerSetup;
+  typedef spdlog::level::level_enum level;
 
-  void SetupLogger();
+  void SetupLoggerIfNeeded();
+  void SetInitializationError(const char*);
 }
 
 #endif //LOGGER_H

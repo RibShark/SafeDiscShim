@@ -3,12 +3,44 @@
 
 #include "logging.h"
 
-void logging::SetupLogger() {
-  auto logger = spdlog::basic_logger_mt("SafeDiscShim",
-    "SafeDiscShim_log.txt", true);
-  spdlog::set_default_logger(logger);
-  spdlog::set_level(spdlog::level::info);
-  spdlog::flush_on(spdlog::level::info);
+namespace {
+  std::once_flag onceFlag;
+  bool isLoggerSetup = false;
+  bool initializationError = false;
+  const char* initializationErrorMessage = "\0";
 
-  logging::isLoggerSetup = true;
+  std::string GetExeName() {
+    char exeName[MAX_PATH];
+    GetModuleFileName(nullptr, exeName, MAX_PATH);
+    return exeName;
+  }
+
+  void SetupLogger() {
+    const std::string loggerFileName = GetExeName() + "_safediscshim.log";
+    const auto logger = spdlog::basic_logger_mt("SafeDiscShim",
+      loggerFileName, true);
+    spdlog::set_default_logger(logger);
+    logger->set_level(spdlog::level::info);
+    logger->flush_on(spdlog::level::info);
+    logger->info("SafeDiscShim"); // TODO: make this grab the version number
+
+    /* we can't output to the log during initialization due to DllMain
+     * restrictions, so do it now */
+    if( initializationError )
+      logger->critical("{}", initializationErrorMessage);
+
+    isLoggerSetup = true;
+  }
+}
+
+void logging::SetupLoggerIfNeeded() {
+  if ( !isLoggerSetup )
+    std::call_once(onceFlag, SetupLogger);
+}
+
+void logging::SetInitializationError(const char* message) {
+  /* NOTE: This function is designed to be called from DllMain, make sure it
+   * does not do anything forbidden! */
+  initializationError = true;
+  initializationErrorMessage = message;
 }
