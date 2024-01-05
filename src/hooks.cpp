@@ -42,6 +42,10 @@ NTSTATUS NTAPI hooks::NtDeviceIoControlFile_Hook(HANDLE FileHandle,
     }
     else IoStatusBlock->Status = STATUS_UNSUCCESSFUL;
   }
+  else if ( IoControlCode == 0xCA002813 ) {
+    spdlog::error("IOCTL 0xCA002813 unhandled (please report!)");
+    IoStatusBlock->Status = STATUS_UNSUCCESSFUL;
+  }
   else {
     // not a secdrv request, pass to original function
     return NtDeviceIoControlFile_Orig(FileHandle, Event, ApcRoutine, ApcContext,
