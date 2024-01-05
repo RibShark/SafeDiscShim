@@ -2,7 +2,21 @@
 
 #include "hooks.h"
 #include "logging.h"
+#include "process.h"
 #include "secdrv_ioctl.h"
+
+int WINAPI hooks::LoadStringA_Hook(HINSTANCE hInstance,
+                            UINT uID,
+                            LPSTR lpBuffer,
+                            int cchBufferMax) {
+  // we don't want to do anything here if SafeDiscShim has already been injected
+  if ( !GetEnvironmentVariableW(L"SAFEDISCSHIM_INJECTED", nullptr, 0) ) {
+    process::RelaunchGame();
+    // if anything executes beyond this point, the relaunch failed
+  }
+
+  return LoadStringA_Orig(hInstance, uID, lpBuffer, cchBufferMax);
+}
 
 NTSTATUS NTAPI hooks::NtDeviceIoControlFile_Hook(HANDLE FileHandle,
                                     HANDLE Event,
@@ -81,12 +95,8 @@ BOOL WINAPI hooks::CreateProcessA_Hook(LPCSTR lpApplicationName,
                                 LPPROCESS_INFORMATION lpProcessInformation) {
   logging::SetupLoggerIfNeeded();
 
-  constexpr char dllName[] {"drvmgt.dll"};
-  auto pLoadLibraryA = reinterpret_cast<LPTHREAD_START_ROUTINE>(
-    GetProcAddress(GetModuleHandle("kernel32.dll"), "LoadLibraryA"));
-
   // if the process isn't created suspended, set the flag so we can inject hooks
-  DWORD isCreateSuspended = dwCreationFlags & CREATE_SUSPENDED;
+  const DWORD isCreateSuspended = dwCreationFlags & CREATE_SUSPENDED;
   if ( !isCreateSuspended ) dwCreationFlags |= CREATE_SUSPENDED;
 
   if ( !CreateProcessA_Orig(lpApplicationName, lpCommandLine,
@@ -95,11 +105,59 @@ BOOL WINAPI hooks::CreateProcessA_Hook(LPCSTR lpApplicationName,
     return FALSE;
 
   // allocate memory for DLL injection
+  constexpr char dllName[] {"drvmgt.dll"};
   HANDLE hProcess = lpProcessInformation->hProcess;
   LPVOID pMemory = VirtualAllocEx(hProcess, nullptr, sizeof(dllName),
     MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 
   // write name of DLL to memory and inject
+  const auto pLoadLibraryA = reinterpret_cast<LPTHREAD_START_ROUTINE>(
+  GetProcAddress(GetModuleHandleA("kernel32.dll"), "LoadLibraryA"));
+  WriteProcessMemory(hProcess, pMemory, dllName, sizeof(dllName), nullptr);
+  HANDLE hRemoteThread = CreateRemoteThread(hProcess, nullptr, 0,
+    pLoadLibraryA, pMemory, 0, nullptr);
+
+  // wait for hooks to be installed
+  WaitForSingleObject(hRemoteThread, INFINITE);
+
+  // now, if the process wasn't originally created suspended,
+  // we can resume the main thread
+  if ( !isCreateSuspended )
+    ResumeThread(lpProcessInformation->hThread);
+
+  return TRUE;
+}
+
+BOOL WINAPI hooks::CreateProcessW_Hook(LPCWSTR lpApplicationName,
+                                LPWSTR lpCommandLine,
+                                LPSECURITY_ATTRIBUTES lpProcessAttributes,
+                                LPSECURITY_ATTRIBUTES lpThreadAttributes,
+                                BOOL bInheritHandles,
+                                DWORD dwCreationFlags,
+                                LPVOID lpEnvironment,
+                                LPCWSTR lpCurrentDirectory,
+                                LPSTARTUPINFOW lpStartupInfo,
+                                LPPROCESS_INFORMATION lpProcessInformation) {
+  logging::SetupLoggerIfNeeded();
+
+  // if the process isn't created suspended, set the flag so we can inject hooks
+  const DWORD isCreateSuspended = dwCreationFlags & CREATE_SUSPENDED;
+  if ( !isCreateSuspended ) dwCreationFlags |= CREATE_SUSPENDED;
+
+  if ( !CreateProcessW_Orig(lpApplicationName, lpCommandLine,
+    lpProcessAttributes, lpThreadAttributes, bInheritHandles, dwCreationFlags,
+    lpEnvironment, lpCurrentDirectory, lpStartupInfo, lpProcessInformation) )
+    return FALSE;
+
+  // allocate memory for DLL injection
+  constexpr char dllName[] {"drvmgt.dll"};
+  HANDLE hProcess = lpProcessInformation->hProcess;
+  LPVOID pMemory = VirtualAllocEx(hProcess, nullptr, sizeof(dllName),
+    MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+
+  // write name of DLL to memory and inject
+  const auto pLoadLibraryA = reinterpret_cast<LPTHREAD_START_ROUTINE>(
+  GetProcAddress(GetModuleHandleA("kernel32.dll"), "LoadLibraryA"));
   WriteProcessMemory(hProcess, pMemory, dllName, sizeof(dllName), nullptr);
   HANDLE hRemoteThread = CreateRemoteThread(hProcess, nullptr, 0,
     pLoadLibraryA, pMemory, 0, nullptr);

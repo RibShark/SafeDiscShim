@@ -3,6 +3,13 @@
 #include <winternl.h>
 
 namespace hooks {
+
+inline decltype(LoadStringA)* LoadStringA_Orig;
+int WINAPI LoadStringA_Hook(HINSTANCE hInstance,
+                            UINT uID,
+                            LPSTR lpBuffer,
+                            int cchBufferMax);
+
 inline decltype(NtDeviceIoControlFile)* NtDeviceIoControlFile_Orig;
 NTSTATUS NTAPI NtDeviceIoControlFile_Hook(HANDLE FileHandle,
                                           HANDLE Event,
@@ -34,6 +41,18 @@ BOOL WINAPI CreateProcessA_Hook(LPCSTR lpApplicationName,
                                 LPVOID lpEnvironment,
                                 LPCSTR lpCurrentDirectory,
                                 LPSTARTUPINFOA lpStartupInfo,
+                                LPPROCESS_INFORMATION lpProcessInformation);
+
+inline decltype(CreateProcessW)* CreateProcessW_Orig;
+BOOL WINAPI CreateProcessW_Hook(LPCWSTR lpApplicationName,
+                                LPWSTR lpCommandLine,
+                                LPSECURITY_ATTRIBUTES lpProcessAttributes,
+                                LPSECURITY_ATTRIBUTES lpThreadAttributes,
+                                BOOL bInheritHandles,
+                                DWORD dwCreationFlags,
+                                LPVOID lpEnvironment,
+                                LPCWSTR lpCurrentDirectory,
+                                LPSTARTUPINFOW lpStartupInfo,
                                 LPPROCESS_INFORMATION lpProcessInformation);
 }
 

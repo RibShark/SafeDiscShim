@@ -19,7 +19,6 @@ namespace {
   void SetupLogger() {
     TCHAR envLogLevel[32767];
     GetEnvironmentVariable("SAFEDISCSHIM_LOGLEVEL", envLogLevel, sizeof(envLogLevel));
-
     if ( GetLastError() == ERROR_ENVVAR_NOT_FOUND ) {
 #ifdef _DEBUG
       spdlog::set_level(spdlog::level::debug);

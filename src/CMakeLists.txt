@@ -16,7 +16,9 @@ add_library(${PROJECT_NAME} SHARED
         secdrv_ioctl.h
         secdrv_ioctl.cpp
         logging.cpp
-        logging.h)
+        logging.h
+        process.cpp
+        process.h)
 target_precompile_headers(${PROJECT_NAME} PRIVATE pch.h)
 set_property(TARGET ${PROJECT_NAME} PROPERTY
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
@@ -27,4 +29,4 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
 find_package(spdlog CONFIG REQUIRED)
 find_package(minhook CONFIG REQUIRED)
 
-target_link_libraries(${PROJECT_NAME} PRIVATE spdlog::spdlog minhook::minhook )
+target_link_libraries(${PROJECT_NAME} PRIVATE ntdll spdlog::spdlog minhook::minhook )
