@@ -83,7 +83,7 @@ BOOL secdrvIoctl::ProcessMainIoctl(LPVOID lpInBuffer,
   auto* outBuffer = static_cast<MainIoctlOutBuffer *>(lpOutBuffer);
 
   if (!hasLoggedVersion) {
-    spdlog::info("SafeDisc version {:0}.{:02}.{:03} detected.",
+    spdlog::info("SafeDisc ioctl version {:0}.{:02}.{:03} detected.",
       inBuffer->VersionMajor,
       inBuffer->VersionMinor,
       inBuffer->VersionPatch);
