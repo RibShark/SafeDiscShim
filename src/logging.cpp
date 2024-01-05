@@ -1,5 +1,6 @@
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/cfg/helpers.h>
 
 #include "logging.h"
 
@@ -16,12 +17,28 @@ namespace {
   }
 
   void SetupLogger() {
+    TCHAR envLogLevel[32767];
+    GetEnvironmentVariable("SAFEDISCSHIM_LOGLEVEL", envLogLevel, sizeof(envLogLevel));
+
+    if ( GetLastError() == ERROR_ENVVAR_NOT_FOUND ) {
+#ifdef _DEBUG
+      spdlog::set_level(spdlog::level::debug);
+      spdlog::flush_on(spdlog::level::debug);
+#else
+      // don't output logs if envvar is not defined
+      return;
+#endif
+    }
+    else spdlog::cfg::helpers::load_levels(envLogLevel);
+
+    // return early if logs are off, so files are not created
+    if ( spdlog::get_level() == spdlog::level::off )
+      return;
+
     const std::string loggerFileName = GetExeName() + "_safediscshim.log";
     const auto logger = spdlog::basic_logger_mt("SafeDiscShim",
       loggerFileName, true);
     spdlog::set_default_logger(logger);
-    logger->set_level(spdlog::level::info);
-    logger->flush_on(spdlog::level::info);
     logger->info("SafeDiscShim"); // TODO: make this grab the version number
 
     /* we can't output to the log during initialization due to DllMain
