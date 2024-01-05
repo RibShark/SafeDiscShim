@@ -22,7 +22,6 @@ namespace {
     if ( GetLastError() == ERROR_ENVVAR_NOT_FOUND ) {
 #ifdef _DEBUG
       spdlog::set_level(spdlog::level::debug);
-      spdlog::flush_on(spdlog::level::debug);
 #else
       // don't output logs if envvar is not defined
       return;
@@ -38,6 +37,7 @@ namespace {
     const auto logger = spdlog::basic_logger_mt("SafeDiscShim",
       loggerFileName, true);
     spdlog::set_default_logger(logger);
+    logger->flush_on(spdlog::level::trace);
     logger->info("SafeDiscShim"); // TODO: make this grab the version number
 
     /* we can't output to the log during initialization due to DllMain
