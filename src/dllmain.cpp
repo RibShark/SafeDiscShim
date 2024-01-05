@@ -34,7 +34,8 @@ bool Initialize() {
   /* HOOKS FOR CLEANUP EXECUTABLE - USED TO RELAUNCH/INJECT GAME EXECUTABLE */
   wchar_t exeName[MAX_PATH];
   GetModuleFileNameW(nullptr, exeName, MAX_PATH);
-  if ( wcsstr(exeName, L"~e5d141.tmp") ||
+  if ( wcsstr(exeName, L"~ef7194.tmp") ||
+    wcsstr(exeName, L"~e5d141.tmp") ||
     wcsstr(exeName, L"~e5.0001") ) {
     /* DLL has been loaded into SafeDisc cleanup, need to relaunch main game
      * executable and inject into that instead */
