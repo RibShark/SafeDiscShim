@@ -1,8 +1,9 @@
+#include <psapi.h>
+#include <process.h> // For CRT atexit functions
 #include <MinHook.h>
 
 #include "hooks.h"
 #include "logging.h"
-
 
 namespace {
   void SetupLoggerForInitializationErrors() {
@@ -30,24 +31,48 @@ bool Initialize() {
     isError = true;
   }
 
-  if ( MH_CreateHookApi(L"ntdll", "NtDeviceIoControlFile",
-    &hooks::NtDeviceIoControlFile_Hook,
-    reinterpret_cast<LPVOID*>(&hooks::NtDeviceIoControlFile_Orig)) != MH_OK ) {
-    logging::SetInitializationError("Unable to hook NtDeviceIoControlFile");
-    isError = true;
+  /* HOOKS FOR CLEANUP EXECUTABLE - USED TO RELAUNCH/INJECT GAME EXECUTABLE */
+  wchar_t exeName[MAX_PATH];
+  GetModuleFileNameW(nullptr, exeName, MAX_PATH);
+  if ( wcsstr(exeName, L"~e5d141.tmp") ||
+    wcsstr(exeName, L"~e5.0001") ) {
+    /* DLL has been loaded into SafeDisc cleanup, need to relaunch main game
+     * executable and inject into that instead */
+    if ( MH_CreateHookApi(L"user32", "LoadStringA",
+      &hooks::LoadStringA_Hook,
+      reinterpret_cast<LPVOID*>(&hooks::LoadStringA_Orig)) != MH_OK ) {
+      logging::SetInitializationError("Unable to hook LoadStringA");
+      isError = true;
+    }
+  }
+
+  /* HOOKS FOR GAME EXECUTABLE */
+  else {
+    if ( MH_CreateHookApi(L"ntdll", "NtDeviceIoControlFile",
+      &hooks::NtDeviceIoControlFile_Hook,
+      reinterpret_cast<LPVOID*>(&hooks::NtDeviceIoControlFile_Orig)) != MH_OK ) {
+      logging::SetInitializationError("Unable to hook NtDeviceIoControlFile");
+      isError = true;
     }
 
-  if ( MH_CreateHookApi(L"kernel32", "CreateFileA", &hooks::CreateFileA_Hook,
-    reinterpret_cast<LPVOID*>(&hooks::CreateFileA_Orig)) != MH_OK ) {
-    logging::SetInitializationError("Unable to hook CreateFileA");
-    isError = true;
+    if ( MH_CreateHookApi(L"kernel32", "CreateFileA", &hooks::CreateFileA_Hook,
+      reinterpret_cast<LPVOID*>(&hooks::CreateFileA_Orig)) != MH_OK ) {
+      logging::SetInitializationError("Unable to hook CreateFileA");
+      isError = true;
     }
+  }
 
+  // CreateProcess needs to be hooked for both executables
   if ( MH_CreateHookApi(L"kernel32", "CreateProcessA", &hooks::CreateProcessA_Hook,
-    reinterpret_cast<LPVOID*>(&hooks::CreateProcessA_Orig)) != MH_OK ) {
+      reinterpret_cast<LPVOID*>(&hooks::CreateProcessA_Orig)) != MH_OK ) {
     logging::SetInitializationError("Unable to hook CreateProcessA");
     isError = true;
-    }
+  }
+  if ( MH_CreateHookApi(L"kernel32", "CreateProcessW", &hooks::CreateProcessW_Hook,
+      reinterpret_cast<LPVOID*>(&hooks::CreateProcessW_Orig)) != MH_OK ) {
+    logging::SetInitializationError("Unable to hook CreateProcessW");
+    isError = true;
+  }
 
   if ( MH_EnableHook(MH_ALL_HOOKS) != MH_OK ) {
     logging::SetInitializationError("Unable to enable hooks");
