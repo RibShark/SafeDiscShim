@@ -1,10 +1,10 @@
-#include <iostream>
-
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/cfg/helpers.h>
 
 #include "logging.h"
+#include "version.h"
 
 namespace {
   std::once_flag onceFlag;
@@ -35,18 +35,21 @@ namespace {
     if ( spdlog::get_level() == spdlog::level::off )
       return;
 
+    const auto stdoutLogger = spdlog::stdout_color_mt("stdout");
+    spdlog::set_default_logger(stdoutLogger);
+    spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%l] %v");
     try {
       const std::string loggerFileName = GetExeName() + "_safediscshim.log";
-      const auto logger = spdlog::basic_logger_mt("SafeDiscShim",
+      const auto logger = spdlog::basic_logger_mt("file",
         loggerFileName, true);
       spdlog::set_default_logger(logger);
     }
     catch (const spdlog::spdlog_ex &ex) {
-      std::cerr << "SafeDiscShim: Error initializing logger - " <<
-        ex.what() << ".";
+      spdlog::info("Error logging to file ({}), logging to stdout instead.", ex.what());
     }
     spdlog::flush_on(spdlog::level::trace);
-    spdlog::info("SafeDiscShim"); // TODO: make this grab the version number
+    spdlog::info("SafeDiscShim version {}.{}.{}", SAFEDISCSHIM_VERSION_MAJOR,
+      SAFEDISCSHIM_VERSION_MINOR, SAFEDISCSHIM_VERSION_PATCH);
 
     /* we can't output to the log during initialization due to DllMain
      * restrictions, so do it now */

@@ -18,10 +18,13 @@ add_library(${PROJECT_NAME} SHARED
         logging.cpp
         logging.h
         process.cpp
-        process.h)
+        process.h
+        )
 target_precompile_headers(${PROJECT_NAME} PRIVATE pch.h)
 set_property(TARGET ${PROJECT_NAME} PROPERTY
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+configure_file(version.h.in version.h)
+target_include_directories(${PROJECT_NAME} PUBLIC "${PROJECT_BINARY_DIR}")
 
 set_target_properties(${PROJECT_NAME} PROPERTIES
         OUTPUT_NAME "drvmgt")
