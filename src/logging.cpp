@@ -45,7 +45,8 @@ namespace {
       spdlog::set_default_logger(logger);
     }
     catch (const spdlog::spdlog_ex &ex) {
-      spdlog::info("Error logging to file ({}), logging to stdout instead.", ex.what());
+      spdlog::info("Error logging to file ({}), logging to stdout instead.",
+        ex.what());
     }
     spdlog::flush_on(spdlog::level::trace);
     spdlog::info("SafeDiscShim version {}.{}.{}", SAFEDISCSHIM_VERSION_MAJOR,
