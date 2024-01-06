@@ -5,6 +5,31 @@
 #include "process.h"
 #include "secdrv_ioctl.h"
 
+namespace {
+  void InjectIntoExecutable(HANDLE hProcess, HANDLE hThread, bool resumeThread) {
+    // allocate memory for DLL injection
+    wchar_t dllName[MAX_PATH];
+    GetSystemDirectoryW(dllName, MAX_PATH);
+    wcscat_s(dllName, L"\\drvmgt.dll");
+    LPVOID pMemory = VirtualAllocEx(hProcess, nullptr, sizeof(dllName),
+      MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+
+    // write name of DLL to memory and inject
+    const auto pLoadLibraryW = reinterpret_cast<LPTHREAD_START_ROUTINE>(
+    GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "LoadLibraryW"));
+    WriteProcessMemory(hProcess, pMemory, dllName, sizeof(dllName), nullptr);
+    HANDLE hRemoteThread = CreateRemoteThread(hProcess, nullptr, 0,
+      pLoadLibraryW, pMemory, 0, nullptr);
+
+    // wait for hooks to be installed
+    WaitForSingleObject(hRemoteThread, INFINITE);
+
+    // now we can resume the main thread if necessary
+    if ( !resumeThread )
+      ResumeThread(hThread);
+  }
+}
+
 int WINAPI hooks::LoadStringA_Hook(HINSTANCE hInstance,
                             UINT uID,
                             LPSTR lpBuffer,
@@ -108,28 +133,8 @@ BOOL WINAPI hooks::CreateProcessA_Hook(LPCSTR lpApplicationName,
     lpEnvironment, lpCurrentDirectory, lpStartupInfo, lpProcessInformation) )
     return FALSE;
 
-  // allocate memory for DLL injection
-  wchar_t dllName[MAX_PATH];
-  GetSystemDirectoryW(dllName, MAX_PATH);
-  wcscat_s(dllName, L"\\drvmgt.dll");
-  HANDLE hProcess = lpProcessInformation->hProcess;
-  LPVOID pMemory = VirtualAllocEx(hProcess, nullptr, sizeof(dllName),
-    MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-
-  // write name of DLL to memory and inject
-  const auto pLoadLibraryW = reinterpret_cast<LPTHREAD_START_ROUTINE>(
-  GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "LoadLibraryW"));
-  WriteProcessMemory(hProcess, pMemory, dllName, sizeof(dllName), nullptr);
-  HANDLE hRemoteThread = CreateRemoteThread(hProcess, nullptr, 0,
-    pLoadLibraryW, pMemory, 0, nullptr);
-
-  // wait for hooks to be installed
-  WaitForSingleObject(hRemoteThread, INFINITE);
-
-  // now, if the process wasn't originally created suspended,
-  // we can resume the main thread
-  if ( !isCreateSuspended )
-    ResumeThread(lpProcessInformation->hThread);
+  InjectIntoExecutable(lpProcessInformation->hProcess,
+    lpProcessInformation->hThread, isCreateSuspended);
 
   return TRUE;
 }
@@ -155,28 +160,8 @@ BOOL WINAPI hooks::CreateProcessW_Hook(LPCWSTR lpApplicationName,
     lpEnvironment, lpCurrentDirectory, lpStartupInfo, lpProcessInformation) )
     return FALSE;
 
-  // allocate memory for DLL injection
-  wchar_t dllName[MAX_PATH];
-  GetSystemDirectoryW(dllName, MAX_PATH);
-  wcscat_s(dllName, L"\\drvmgt.dll");
-  HANDLE hProcess = lpProcessInformation->hProcess;
-  LPVOID pMemory = VirtualAllocEx(hProcess, nullptr, sizeof(dllName),
-    MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-
-  // write name of DLL to memory and inject
-  const auto pLoadLibraryW = reinterpret_cast<LPTHREAD_START_ROUTINE>(
-  GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "LoadLibraryW"));
-  WriteProcessMemory(hProcess, pMemory, dllName, sizeof(dllName), nullptr);
-  HANDLE hRemoteThread = CreateRemoteThread(hProcess, nullptr, 0,
-    pLoadLibraryW, pMemory, 0, nullptr);
-
-  // wait for hooks to be installed
-  WaitForSingleObject(hRemoteThread, INFINITE);
-
-  // now, if the process wasn't originally created suspended,
-  // we can resume the main thread
-  if ( !isCreateSuspended )
-    ResumeThread(lpProcessInformation->hThread);
+  InjectIntoExecutable(lpProcessInformation->hProcess,
+     lpProcessInformation->hThread, isCreateSuspended);
 
   return TRUE;
 }
