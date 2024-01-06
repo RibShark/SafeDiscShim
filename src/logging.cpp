@@ -1,3 +1,5 @@
+#include <iostream>
+
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/cfg/helpers.h>
@@ -33,17 +35,23 @@ namespace {
     if ( spdlog::get_level() == spdlog::level::off )
       return;
 
-    const std::string loggerFileName = GetExeName() + "_safediscshim.log";
-    const auto logger = spdlog::basic_logger_mt("SafeDiscShim",
-      loggerFileName, true);
-    spdlog::set_default_logger(logger);
-    logger->flush_on(spdlog::level::trace);
-    logger->info("SafeDiscShim"); // TODO: make this grab the version number
+    try {
+      const std::string loggerFileName = GetExeName() + "_safediscshim.log";
+      const auto logger = spdlog::basic_logger_mt("SafeDiscShim",
+        loggerFileName, true);
+      spdlog::set_default_logger(logger);
+    }
+    catch (const spdlog::spdlog_ex &ex) {
+      std::cerr << "SafeDiscShim: Error initializing logger - " <<
+        ex.what() << ".";
+    }
+    spdlog::flush_on(spdlog::level::trace);
+    spdlog::info("SafeDiscShim"); // TODO: make this grab the version number
 
     /* we can't output to the log during initialization due to DllMain
      * restrictions, so do it now */
     if( initializationError )
-      logger->critical("{}", initializationErrorMessage);
+      spdlog::critical("{}", initializationErrorMessage);
 
     isLoggerSetup = true;
   }

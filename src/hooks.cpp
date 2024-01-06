@@ -109,17 +109,19 @@ BOOL WINAPI hooks::CreateProcessA_Hook(LPCSTR lpApplicationName,
     return FALSE;
 
   // allocate memory for DLL injection
-  constexpr char dllName[] {"drvmgt.dll"};
+  wchar_t dllName[MAX_PATH];
+  GetSystemDirectoryW(dllName, MAX_PATH);
+  wcscat_s(dllName, L"\\drvmgt.dll");
   HANDLE hProcess = lpProcessInformation->hProcess;
   LPVOID pMemory = VirtualAllocEx(hProcess, nullptr, sizeof(dllName),
     MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 
   // write name of DLL to memory and inject
-  const auto pLoadLibraryA = reinterpret_cast<LPTHREAD_START_ROUTINE>(
-  GetProcAddress(GetModuleHandleA("kernel32.dll"), "LoadLibraryA"));
+  const auto pLoadLibraryW = reinterpret_cast<LPTHREAD_START_ROUTINE>(
+  GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "LoadLibraryW"));
   WriteProcessMemory(hProcess, pMemory, dllName, sizeof(dllName), nullptr);
   HANDLE hRemoteThread = CreateRemoteThread(hProcess, nullptr, 0,
-    pLoadLibraryA, pMemory, 0, nullptr);
+    pLoadLibraryW, pMemory, 0, nullptr);
 
   // wait for hooks to be installed
   WaitForSingleObject(hRemoteThread, INFINITE);
@@ -154,17 +156,19 @@ BOOL WINAPI hooks::CreateProcessW_Hook(LPCWSTR lpApplicationName,
     return FALSE;
 
   // allocate memory for DLL injection
-  constexpr char dllName[] {"drvmgt.dll"};
+  wchar_t dllName[MAX_PATH];
+  GetSystemDirectoryW(dllName, MAX_PATH);
+  wcscat_s(dllName, L"\\drvmgt.dll");
   HANDLE hProcess = lpProcessInformation->hProcess;
   LPVOID pMemory = VirtualAllocEx(hProcess, nullptr, sizeof(dllName),
     MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 
   // write name of DLL to memory and inject
-  const auto pLoadLibraryA = reinterpret_cast<LPTHREAD_START_ROUTINE>(
-  GetProcAddress(GetModuleHandleA("kernel32.dll"), "LoadLibraryA"));
+  const auto pLoadLibraryW = reinterpret_cast<LPTHREAD_START_ROUTINE>(
+  GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "LoadLibraryW"));
   WriteProcessMemory(hProcess, pMemory, dllName, sizeof(dllName), nullptr);
   HANDLE hRemoteThread = CreateRemoteThread(hProcess, nullptr, 0,
-    pLoadLibraryA, pMemory, 0, nullptr);
+    pLoadLibraryW, pMemory, 0, nullptr);
 
   // wait for hooks to be installed
   WaitForSingleObject(hRemoteThread, INFINITE);
