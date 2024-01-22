@@ -134,7 +134,7 @@ BOOL WINAPI hooks::CreateProcessA_Hook(LPCSTR lpApplicationName,
     return FALSE;
 
   InjectIntoExecutable(lpProcessInformation->hProcess,
-    lpProcessInformation->hThread, isCreateSuspended);
+    lpProcessInformation->hThread, !isCreateSuspended);
 
   return TRUE;
 }
