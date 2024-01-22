@@ -2,11 +2,16 @@
 
 #include "hooks.h"
 #include "logging.h"
-#include "process.h"
 #include "secdrv_ioctl.h"
 
 namespace {
   void InjectIntoExecutable(HANDLE hProcess, HANDLE hThread, bool resumeThread) {
+    /* create event that will be signaled when hooks are installed in the
+     * target process */
+    std::wstring eventName = L"Global\\SafeDiscShimInject." +
+      std::to_wstring(GetProcessId(hProcess));
+    HANDLE hEvent = CreateEventW(nullptr, true, false, eventName.c_str());
+
     // allocate memory for DLL injection
     wchar_t dllName[MAX_PATH];
     GetSystemDirectoryW(dllName, MAX_PATH);
@@ -18,29 +23,17 @@ namespace {
     const auto pLoadLibraryW = reinterpret_cast<LPTHREAD_START_ROUTINE>(
     GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "LoadLibraryW"));
     WriteProcessMemory(hProcess, pMemory, dllName, sizeof(dllName), nullptr);
-    HANDLE hRemoteThread = CreateRemoteThread(hProcess, nullptr, 0,
+    CreateRemoteThread(hProcess, nullptr, 0,
       pLoadLibraryW, pMemory, 0, nullptr);
 
     // wait for hooks to be installed
-    WaitForSingleObject(hRemoteThread, INFINITE);
+    WaitForSingleObject(hEvent, INFINITE);
+    CloseHandle(hEvent);
 
     // now we can resume the main thread if necessary
     if ( resumeThread )
       ResumeThread(hThread);
   }
-}
-
-int WINAPI hooks::LoadStringA_Hook(HINSTANCE hInstance,
-                            UINT uID,
-                            LPSTR lpBuffer,
-                            int cchBufferMax) {
-  // we don't want to do anything here if SafeDiscShim has already been injected
-  if ( !GetEnvironmentVariableW(L"SAFEDISCSHIM_INJECTED", nullptr, 0) ) {
-    process::RelaunchGame();
-    // if anything executes beyond this point, the relaunch failed
-  }
-
-  return LoadStringA_Orig(hInstance, uID, lpBuffer, cchBufferMax);
 }
 
 NTSTATUS NTAPI hooks::NtDeviceIoControlFile_Hook(HANDLE FileHandle,

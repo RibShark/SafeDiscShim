@@ -4,8 +4,11 @@
 
 #include "hooks.h"
 #include "logging.h"
+#include "process.h"
 
 namespace {
+  HANDLE hInjectedEvent;
+
   void SetupLoggerForInitializationErrors() {
     CloseHandle(CreateThread(
       nullptr,
@@ -24,12 +27,23 @@ namespace {
 bool Initialize() {
   bool isError = false;
 
-  /* thankfully MinHook seems to not use anything forbidden in DllMain
-   * so we can just inject hooks from here */
   if ( MH_Initialize() != MH_OK ) {
     logging::SetInitializationError("Unable to initialize MinHook");
     isError = true;
   }
+
+  // CreateProcess needs to be hooked for both executables
+  if ( MH_CreateHookApi(L"kernel32", "CreateProcessA", &hooks::CreateProcessA_Hook,
+      reinterpret_cast<LPVOID*>(&hooks::CreateProcessA_Orig)) != MH_OK ) {
+    logging::SetInitializationError("Unable to hook CreateProcessA");
+    isError = true;
+  }
+  if ( MH_CreateHookApi(L"kernel32", "CreateProcessW", &hooks::CreateProcessW_Hook,
+      reinterpret_cast<LPVOID*>(&hooks::CreateProcessW_Orig)) != MH_OK ) {
+    logging::SetInitializationError("Unable to hook CreateProcessW");
+    isError = true;
+  }
+  MH_EnableHook(MH_ALL_HOOKS);
 
   /* HOOKS FOR CLEANUP EXECUTABLE - USED TO RELAUNCH/INJECT GAME EXECUTABLE */
   wchar_t exeName[MAX_PATH];
@@ -43,14 +57,10 @@ bool Initialize() {
     wcsstr(exeName, L"~e5.0001") ) {
     /* DLL has been loaded into SafeDisc cleanup, need to relaunch main game
      * executable and inject into that instead */
-    if ( MH_CreateHookApi(L"user32", "LoadStringA",
-      &hooks::LoadStringA_Hook,
-      reinterpret_cast<LPVOID*>(&hooks::LoadStringA_Orig)) != MH_OK ) {
-      logging::SetInitializationError("Unable to hook LoadStringA");
-      isError = true;
+    if ( !GetEnvironmentVariableW(L"SAFEDISCSHIM_INJECTED", nullptr, 0) ) {
+      process::RelaunchGame();
     }
   }
-
   /* HOOKS FOR GAME EXECUTABLE */
   else {
     if ( MH_CreateHookApi(L"ntdll", "NtDeviceIoControlFile",
@@ -67,22 +77,12 @@ bool Initialize() {
     }
   }
 
-  // CreateProcess needs to be hooked for both executables
-  if ( MH_CreateHookApi(L"kernel32", "CreateProcessA", &hooks::CreateProcessA_Hook,
-      reinterpret_cast<LPVOID*>(&hooks::CreateProcessA_Orig)) != MH_OK ) {
-    logging::SetInitializationError("Unable to hook CreateProcessA");
-    isError = true;
-  }
-  if ( MH_CreateHookApi(L"kernel32", "CreateProcessW", &hooks::CreateProcessW_Hook,
-      reinterpret_cast<LPVOID*>(&hooks::CreateProcessW_Orig)) != MH_OK ) {
-    logging::SetInitializationError("Unable to hook CreateProcessW");
-    isError = true;
-  }
-
   if ( MH_EnableHook(MH_ALL_HOOKS) != MH_OK ) {
     logging::SetInitializationError("Unable to enable hooks");
     isError = true;
   }
+
+  SetEvent(hInjectedEvent);
 
   if ( isError ) {
     SetupLoggerForInitializationErrors();
@@ -92,10 +92,18 @@ bool Initialize() {
 }
 
 BOOL WINAPI DllMain(HINSTANCE /*hinstDLL*/, DWORD fdwReason, LPVOID /*lpvReserved*/) {
-  BOOL result = TRUE;
+  std::wstring eventName = L"Global\\SafeDiscShimInject." +
+    std::to_wstring(GetCurrentProcessId());
+
   switch( fdwReason ) {
   case DLL_PROCESS_ATTACH:
-    result = Initialize();
+    // create event that will be signaled when hooks are installed
+    hInjectedEvent = CreateEventW(nullptr, true, false, eventName.c_str());
+    CloseHandle(
+      CreateThread(nullptr, 0,
+        [](LPVOID ) -> DWORD { Initialize(); return 0; },
+        nullptr, 0, nullptr)
+    );
     break;
   case DLL_THREAD_ATTACH:
   case DLL_THREAD_DETACH:
@@ -103,12 +111,15 @@ BOOL WINAPI DllMain(HINSTANCE /*hinstDLL*/, DWORD fdwReason, LPVOID /*lpvReserve
   default:
     break;
   }
-  return result;
+  return true;
 }
 
 
 // Exported functions from the original drvmgt.dll. 100 = success
 extern "C" __declspec(dllexport) int Setup(LPCSTR /*lpSubKey*/, char* /*FullPath*/) {
+  // don't continue unless hooks are installed
+  WaitForSingleObject(hInjectedEvent, INFINITE);
+  CloseHandle(hInjectedEvent);
   return 100;
 }
 
