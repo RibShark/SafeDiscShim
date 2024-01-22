@@ -25,7 +25,7 @@ namespace {
     WaitForSingleObject(hRemoteThread, INFINITE);
 
     // now we can resume the main thread if necessary
-    if ( !resumeThread )
+    if ( resumeThread )
       ResumeThread(hThread);
   }
 }
@@ -161,7 +161,7 @@ BOOL WINAPI hooks::CreateProcessW_Hook(LPCWSTR lpApplicationName,
     return FALSE;
 
   InjectIntoExecutable(lpProcessInformation->hProcess,
-     lpProcessInformation->hThread, isCreateSuspended);
+     lpProcessInformation->hThread, !isCreateSuspended);
 
   return TRUE;
 }
