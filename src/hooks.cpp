@@ -46,6 +46,8 @@ NTSTATUS NTAPI hooks::NtDeviceIoControlFile_Hook(HANDLE FileHandle,
                                     ULONG InputBufferLength,
                                     PVOID OutputBuffer,
                                     ULONG OutputBufferLength) {
+  spdlog::trace(L"hooked NtDeviceIoControlFile called");
+
   /* all IOCTLs will pass through this function, but it's probably fine since
    * secdrv uses unique control codes */
   if ( IoControlCode == secdrvIoctl::ioctlCodeMain ) {
@@ -79,6 +81,8 @@ HANDLE WINAPI hooks::CreateFileA_Hook(LPCSTR lpFileName,
                                DWORD dwCreationDisposition,
                                DWORD dwFlagsAndAttributes,
                                HANDLE hTemplateFile) {
+  spdlog::trace(L"hooked CreateFileA called");
+
   if ( !lstrcmpiA(lpFileName, R"(\\.\Secdrv)") ||
     !lstrcmpiA(lpFileName, R"(\\.\Global\SecDrv)") ) {
     /* we need to return a handle when secdrv is opened, so we just open the
@@ -93,7 +97,7 @@ HANDLE WINAPI hooks::CreateFileA_Hook(LPCSTR lpFileName,
         nullptr
     );
     if ( dummyHandle == INVALID_HANDLE_VALUE )
-      spdlog::critical("Unable to obtain a dummy handle for secdrv");
+      spdlog::critical("unable to obtain a dummy handle for secdrv");
     return dummyHandle;
     }
   return CreateFileA_Orig(lpFileName, dwDesiredAccess, dwShareMode,
@@ -111,6 +115,8 @@ BOOL WINAPI hooks::CreateProcessA_Hook(LPCSTR lpApplicationName,
                                 LPCSTR lpCurrentDirectory,
                                 LPSTARTUPINFOA lpStartupInfo,
                                 LPPROCESS_INFORMATION lpProcessInformation) {
+  spdlog::trace(L"hooked CreateProcessA called");
+
   // if the process isn't created suspended, set the flag so we can inject hooks
   const DWORD isCreateSuspended = dwCreationFlags & CREATE_SUSPENDED;
   if ( !isCreateSuspended ) dwCreationFlags |= CREATE_SUSPENDED;
@@ -120,7 +126,7 @@ BOOL WINAPI hooks::CreateProcessA_Hook(LPCSTR lpApplicationName,
     lpEnvironment, lpCurrentDirectory, lpStartupInfo, lpProcessInformation) )
     return FALSE;
 
-  spdlog::info("Injecting into executable {}", lpApplicationName);
+  spdlog::info("injecting into executable {}", lpApplicationName);
   InjectIntoExecutable(lpProcessInformation->hProcess,
     lpProcessInformation->hThread, !isCreateSuspended);
 
@@ -137,6 +143,8 @@ BOOL WINAPI hooks::CreateProcessW_Hook(LPCWSTR lpApplicationName,
                                 LPCWSTR lpCurrentDirectory,
                                 LPSTARTUPINFOW lpStartupInfo,
                                 LPPROCESS_INFORMATION lpProcessInformation) {
+  spdlog::trace(L"hooked CreateProcessW called");
+
   // if the process isn't created suspended, set the flag so we can inject hooks
   const DWORD isCreateSuspended = dwCreationFlags & CREATE_SUSPENDED;
   if ( !isCreateSuspended ) dwCreationFlags |= CREATE_SUSPENDED;
@@ -146,7 +154,7 @@ BOOL WINAPI hooks::CreateProcessW_Hook(LPCWSTR lpApplicationName,
     lpEnvironment, lpCurrentDirectory, lpStartupInfo, lpProcessInformation) )
     return FALSE;
 
-  spdlog::info(L"Injecting into executable {}", lpApplicationName);
+  spdlog::info(L"injecting into executable {}", lpApplicationName);
   InjectIntoExecutable(lpProcessInformation->hProcess,
      lpProcessInformation->hThread, !isCreateSuspended);
 
