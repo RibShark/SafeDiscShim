@@ -37,6 +37,7 @@ bool Initialize() {
   if ( MH_EnableHook(MH_ALL_HOOKS) != MH_OK ) {
     spdlog::critical("Unable to enable CreateProcess hooks");
   }
+  spdlog::trace("Enabled CreateProcess hooks");
 
   char exeName[MAX_PATH];
   GetModuleFileNameA(nullptr, exeName, MAX_PATH);
@@ -105,6 +106,7 @@ bool Initialize() {
     spdlog::critical("Unable to enable IOCTL hooks");
     return false;
   }
+  spdlog::trace("Enabled IOCTL hooks");
 
   SetEvent(hInjectedEvent);
   return true;
