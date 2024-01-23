@@ -13,25 +13,30 @@ namespace {
 bool Initialize() {
   logging::SetupLogger();
 
-  bool isError = false;
-
   if ( MH_Initialize() != MH_OK ) {
     spdlog::critical("Unable to initialize MinHook");
-    isError = true;
+    return false;
   }
+  spdlog::trace("Initialized MinHook");
 
   // CreateProcess needs to be hooked for both executables
   if ( MH_CreateHookApi(L"kernel32", "CreateProcessA", &hooks::CreateProcessA_Hook,
       reinterpret_cast<LPVOID*>(&hooks::CreateProcessA_Orig)) != MH_OK ) {
     spdlog::critical("Unable to hook CreateProcessA");
-    isError = true;
+    return false;
   }
+  spdlog::trace("Hooked CreateProcessA");
+
   if ( MH_CreateHookApi(L"kernel32", "CreateProcessW", &hooks::CreateProcessW_Hook,
       reinterpret_cast<LPVOID*>(&hooks::CreateProcessW_Orig)) != MH_OK ) {
     spdlog::critical("Unable to hook CreateProcessW");
-    isError = true;
+    return false;
   }
-  MH_EnableHook(MH_ALL_HOOKS);
+  spdlog::trace("Hooked CreateProcessW");
+
+  if ( MH_EnableHook(MH_ALL_HOOKS) != MH_OK ) {
+    spdlog::critical("Unable to enable CreateProcess hooks");
+  }
 
   char exeName[MAX_PATH];
   GetModuleFileNameA(nullptr, exeName, MAX_PATH);
@@ -47,18 +52,23 @@ bool Initialize() {
     /* DLL has been loaded into SafeDisc cleanup, need to relaunch main game
      * executable and inject into that instead */
     if ( !GetEnvironmentVariableW(L"SAFEDISCSHIM_INJECTED", nullptr, 0) ) {
+      spdlog::info("Cleanup.exe detected, relaunching game and injecting");
 
       /* PID of game executable is in command line as argument 1 */
       const wchar_t* cmdLine = GetCommandLineW();
       unsigned long pid = 0;
-      if ( swscanf_s(cmdLine, L"\"%*[^\"]\" %lu", &pid) != 1 || !pid )
+      if ( swscanf_s(cmdLine, L"\"%*[^\"]\" %lu", &pid) != 1 || !pid ) {
+        spdlog::error("Unable to get game PID");
         return false;
+      }
 
       HANDLE hGameProcess;
       if ( hGameProcess = OpenProcess(
         PROCESS_TERMINATE | PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
-        false, pid); !hGameProcess )
+        false, pid); !hGameProcess ) {
+        spdlog::error("Unable to open game process");
         return false;
+      }
 
       // for cleanup executable, log to game folder rather than %temp%
       GetModuleFileNameExA(hGameProcess, nullptr, exeName, MAX_PATH);
@@ -79,26 +89,24 @@ bool Initialize() {
       &hooks::NtDeviceIoControlFile_Hook,
       reinterpret_cast<LPVOID*>(&hooks::NtDeviceIoControlFile_Orig)) != MH_OK ) {
       spdlog::critical("Unable to hook NtDeviceIoControlFile");
-      isError = true;
+      return false;
     }
+    spdlog::trace("Hooked NtDeviceIoControlFile");
 
     if ( MH_CreateHookApi(L"kernel32", "CreateFileA", &hooks::CreateFileA_Hook,
       reinterpret_cast<LPVOID*>(&hooks::CreateFileA_Orig)) != MH_OK ) {
       spdlog::critical("Unable to hook CreateFileA");
-      isError = true;
+      return false;
     }
+    spdlog::trace("Hooked CreateFileA");
   }
 
   if ( MH_EnableHook(MH_ALL_HOOKS) != MH_OK ) {
-    spdlog::critical("Unable to enable hooks");
-    isError = true;
+    spdlog::critical("Unable to enable IOCTL hooks");
+    return false;
   }
 
   SetEvent(hInjectedEvent);
-
-  if ( isError ) {
-    return false;
-  }
   return true;
 }
 
@@ -128,7 +136,7 @@ BOOL WINAPI DllMain(HINSTANCE /*hinstDLL*/, DWORD fdwReason, LPVOID /*lpvReserve
 
 // Exported functions from the original drvmgt.dll. 100 = success
 extern "C" __declspec(dllexport) int Setup(LPCSTR /*lpSubKey*/, char* /*FullPath*/) {
-  // don't continue unless hooks are installed
+  // wait for hooks to be installed to continue
   WaitForSingleObject(hInjectedEvent, INFINITE);
   CloseHandle(hInjectedEvent);
   return 100;

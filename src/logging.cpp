@@ -16,7 +16,7 @@ void logging::SetupLogger() {
   GetEnvironmentVariable("SAFEDISCSHIM_LOGLEVEL", envLogLevel, sizeof(envLogLevel));
   if ( GetLastError() == ERROR_ENVVAR_NOT_FOUND ) {
 #ifdef _DEBUG
-    spdlog::set_level(spdlog::level::debug);
+    spdlog::set_level(spdlog::level::trace);
 #else
     // don't output logs if envvar is not defined
     return;

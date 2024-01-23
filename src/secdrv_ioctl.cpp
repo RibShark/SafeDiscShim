@@ -67,17 +67,19 @@ BOOL secdrvIoctl::ProcessMainIoctl(LPVOID lpInBuffer,
   }
 
   if ( nInBufferSize != sizeof(MainIoctlInBuffer) ) {
-    spdlog::error("invalid ioctl in-buffer size: {:x}", nInBufferSize);
+    spdlog::error("invalid ioctl in-buffer size: {:#x}", nInBufferSize);
     return FALSE;
   }
+  spdlog::trace("ioctl in-buffer size: {:#x}", nInBufferSize);
 
   /* later versions report a buffer size of 0xC18 for some reason, though it is
    * never read from or written to outside of the normal size */
   if ( nOutBufferSize != sizeof(MainIoctlOutBuffer)
     && nOutBufferSize != 0xC18 ) {
-    spdlog::error("invalid ioctl out-buffer size: {:x}", nOutBufferSize);
+    spdlog::error("invalid ioctl out-buffer size: {:#x}", nOutBufferSize);
     return FALSE;
   }
+  spdlog::trace("ioctl out-buffer size: {:#x}", nOutBufferSize);
 
   auto* inBuffer = static_cast<MainIoctlInBuffer *>(lpInBuffer);
   auto* outBuffer = static_cast<MainIoctlOutBuffer *>(lpOutBuffer);
@@ -100,24 +102,29 @@ BOOL secdrvIoctl::ProcessMainIoctl(LPVOID lpInBuffer,
    * perform more checks */
   switch ( inBuffer->Command ) {
   case GetDebugRegisterInfo:
+    spdlog::trace("command GetDebugRegisterInfo called");
     outBuffer->ExtraDataSize = 4;
     outBuffer->ExtraData[0] = 0x400;
     break;
   case GetIdtInfo:
+    spdlog::trace("command GetIdtInfo called");
     outBuffer->ExtraDataSize = 4;
     outBuffer->ExtraData[0] = 0x2C8;
     break;
   case SetupVerification:
+    spdlog::trace("command SetupVerification called");
     outBuffer->ExtraDataSize = 4;
     outBuffer->ExtraData[0] = 0x5278d11b;
     break;
   case Command3Fh:
+    spdlog::trace("command 3Fh called");
     if ( nOutBufferSize != 0xC18 ||
       inBuffer->ExtraData[0] > 0x60 ) return FALSE;
     outBuffer->ExtraDataSize = 4;
     outBuffer->ExtraData[0] = 0;
     break;
   case Command40h:
+    spdlog::trace("command 40h called");
     if ( nOutBufferSize != 0xC18 ||
       !inBuffer->ExtraData[0] ||
       !inBuffer->ExtraData[1] ) return FALSE;
@@ -128,11 +135,13 @@ BOOL secdrvIoctl::ProcessMainIoctl(LPVOID lpInBuffer,
       outBuffer->ExtraData[0] = 0x587C1284;
     break;
   case Command41h:
+    spdlog::trace("command 41h called");
     if ( nOutBufferSize != 0xC18 ||
       !LOBYTE(inBuffer->ExtraData[0]) ) return FALSE;
     outBuffer->ExtraDataSize = 4;
     break;
   case Command42h:
+    spdlog::trace("command 42h called");
     return FALSE;
   case Command43h:
     if ( inBuffer->ExtraData[0] != 0x98A64100 ||
@@ -142,7 +151,7 @@ BOOL secdrvIoctl::ProcessMainIoctl(LPVOID lpInBuffer,
     outBuffer->ExtraData[0] = 0;
     break;
   default:
-    spdlog::error("unhandled ioctl command: {:x}",
+    spdlog::error("unhandled ioctl command: {:#x}",
       static_cast<DWORD>(inBuffer->Command));
     return FALSE;
   }

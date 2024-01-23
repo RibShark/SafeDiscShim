@@ -1,10 +1,9 @@
 #include <winternl.h>
-
-#include "process.h"
-
-#include <istream>
 #include <string>
 #include <vector>
+
+#include "process.h"
+#include "logging.h"
 
 namespace {
   /* the definition in winternl.h is missing quite a bit, including, for our
@@ -31,31 +30,41 @@ namespace {
     PROCESS_BASIC_INFORMATION pbi;
     NTSTATUS status = NtQueryInformationProcess(hProcess, ProcessBasicInformation,
       &pbi, sizeof(pbi), nullptr);
-    if ( !NT_SUCCESS(status) || !pbi.PebBaseAddress )
+    if ( !NT_SUCCESS(status) || !pbi.PebBaseAddress ) {
+      spdlog::critical("Unable to get PEB address");
       return false;
+    }
 
     PEB peb {};
     if ( !ReadProcessMemory(hProcess, pbi.PebBaseAddress,
-      &peb, sizeof(peb), nullptr) )
+      &peb, sizeof(peb), nullptr) ) {
+      spdlog::critical("Unable to read PEB");
       return false;
+    }
 
     RTL_USER_PROCESS_PARAMETERS processParameters {};
     if ( !ReadProcessMemory(hProcess, peb.ProcessParameters,
-      &processParameters, sizeof(processParameters), nullptr) )
+      &processParameters, sizeof(processParameters), nullptr) ) {
+      spdlog::critical("Unable to read ProcessParameters");
       return false;
+    }
 
     UNICODE_STRING &cmdLine = processParameters.CommandLine;
     std::vector<wchar_t> cmdLineBuf(cmdLine.Length / sizeof(wchar_t));
     if ( !ReadProcessMemory(hProcess, cmdLine.Buffer, cmdLineBuf.data(),
-      cmdLine.Length, nullptr) )
+      cmdLine.Length, nullptr) ) {
+      spdlog::critical("Unable to read process command line");
       return false;
+    }
     commandLine.assign(cmdLineBuf.data(), cmdLineBuf.size());
 
     UNICODE_STRING &curDir = processParameters.CurrentDirectoryPath;
     std::vector<wchar_t> curDirBuf(curDir.Length / sizeof(wchar_t));
     if ( !ReadProcessMemory(hProcess, curDir.Buffer, curDirBuf.data(),
-      curDir.Length, nullptr) )
+      curDir.Length, nullptr) ) {
+      spdlog::critical("Unable to read process current directory");
       return false;
+    }
     directory.assign(curDirBuf.data(), curDirBuf.size());
 
     return true;
@@ -63,6 +72,8 @@ namespace {
 }
 
 void process::RelaunchGame(HANDLE hGameProcess) {
+  spdlog::info("Relaunching main game process");
+
   SetEnvironmentVariableW(L"SAFEDISCSHIM_INJECTED", L"1");
 
   std::wstring commandLine;
@@ -82,5 +93,6 @@ void process::RelaunchGame(HANDLE hGameProcess) {
     nullptr, nullptr, false, 0,nullptr,
     workingDirectory.c_str(), &si, &pi);
 
+  spdlog::info("Main game process relaunched; exiting cleanup.exe");
   ExitProcess(0);
 }

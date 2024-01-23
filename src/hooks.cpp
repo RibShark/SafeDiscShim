@@ -120,6 +120,7 @@ BOOL WINAPI hooks::CreateProcessA_Hook(LPCSTR lpApplicationName,
     lpEnvironment, lpCurrentDirectory, lpStartupInfo, lpProcessInformation) )
     return FALSE;
 
+  spdlog::info("Injecting into executable {}", lpApplicationName);
   InjectIntoExecutable(lpProcessInformation->hProcess,
     lpProcessInformation->hThread, !isCreateSuspended);
 
@@ -145,6 +146,7 @@ BOOL WINAPI hooks::CreateProcessW_Hook(LPCWSTR lpApplicationName,
     lpEnvironment, lpCurrentDirectory, lpStartupInfo, lpProcessInformation) )
     return FALSE;
 
+  spdlog::info(L"Injecting into executable {}", lpApplicationName);
   InjectIntoExecutable(lpProcessInformation->hProcess,
      lpProcessInformation->hThread, !isCreateSuspended);
 
