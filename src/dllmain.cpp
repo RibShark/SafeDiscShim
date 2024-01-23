@@ -8,84 +8,95 @@
 
 namespace {
   HANDLE hInjectedEvent;
-
-  void SetupLoggerForInitializationErrors() {
-    CloseHandle(CreateThread(
-      nullptr,
-      0,
-      [](LPVOID ) -> DWORD {
-        logging::SetupLoggerIfNeeded();
-        return 0;
-      },
-      nullptr,
-      0,
-      nullptr
-    ));
-  }
 }
 
 bool Initialize() {
+  logging::SetupLogger();
+
   bool isError = false;
 
   if ( MH_Initialize() != MH_OK ) {
-    logging::SetInitializationError("Unable to initialize MinHook");
+    spdlog::critical("Unable to initialize MinHook");
     isError = true;
   }
 
   // CreateProcess needs to be hooked for both executables
   if ( MH_CreateHookApi(L"kernel32", "CreateProcessA", &hooks::CreateProcessA_Hook,
       reinterpret_cast<LPVOID*>(&hooks::CreateProcessA_Orig)) != MH_OK ) {
-    logging::SetInitializationError("Unable to hook CreateProcessA");
+    spdlog::critical("Unable to hook CreateProcessA");
     isError = true;
   }
   if ( MH_CreateHookApi(L"kernel32", "CreateProcessW", &hooks::CreateProcessW_Hook,
       reinterpret_cast<LPVOID*>(&hooks::CreateProcessW_Orig)) != MH_OK ) {
-    logging::SetInitializationError("Unable to hook CreateProcessW");
+    spdlog::critical("Unable to hook CreateProcessW");
     isError = true;
   }
   MH_EnableHook(MH_ALL_HOOKS);
 
+  char exeName[MAX_PATH];
+  GetModuleFileNameA(nullptr, exeName, MAX_PATH);
+
   /* HOOKS FOR CLEANUP EXECUTABLE - USED TO RELAUNCH/INJECT GAME EXECUTABLE */
-  wchar_t exeName[MAX_PATH];
-  GetModuleFileNameW(nullptr, exeName, MAX_PATH);
-  if ( wcsstr(exeName, L"~ef7194.tmp") ||
-    wcsstr(exeName, L"~f51e43.tmp") ||
-    wcsstr(exeName, L"~f39a36.tmp") ||
-    wcsstr(exeName, L"~f1d055.tmp") ||
-    wcsstr(exeName, L"~e5d141.tmp") ||
-    wcsstr(exeName, L"~fad052.tmp") ||
-    wcsstr(exeName, L"~e5.0001") ) {
+  if ( strstr(exeName, "~ef7194.tmp") ||
+    strstr(exeName, "~f51e43.tmp") ||
+    strstr(exeName, "~f39a36.tmp") ||
+    strstr(exeName, "~f1d055.tmp") ||
+    strstr(exeName, "~e5d141.tmp") ||
+    strstr(exeName, "~fad052.tmp") ||
+    strstr(exeName, "~e5.0001") ) {
     /* DLL has been loaded into SafeDisc cleanup, need to relaunch main game
      * executable and inject into that instead */
     if ( !GetEnvironmentVariableW(L"SAFEDISCSHIM_INJECTED", nullptr, 0) ) {
-      process::RelaunchGame();
+
+      /* PID of game executable is in command line as argument 1 */
+      const wchar_t* cmdLine = GetCommandLineW();
+      unsigned long pid = 0;
+      if ( swscanf_s(cmdLine, L"\"%*[^\"]\" %lu", &pid) != 1 || !pid )
+        return false;
+
+      HANDLE hGameProcess;
+      if ( hGameProcess = OpenProcess(
+        PROCESS_TERMINATE | PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
+        false, pid); !hGameProcess )
+        return false;
+
+      // for cleanup executable, log to game folder rather than %temp%
+      GetModuleFileNameExA(hGameProcess, nullptr, exeName, MAX_PATH);
+      const std::string loggerFileName = std::string(exeName) +
+        "_Cleanup_SafeDiscShim.log";
+      logging::SetLoggerFileName(loggerFileName);
+
+      process::RelaunchGame(hGameProcess);
     }
   }
+
   /* HOOKS FOR GAME EXECUTABLE */
   else {
+    const std::string loggerFileName = std::string(exeName) + "_SafeDiscShim.log";
+    logging::SetLoggerFileName(loggerFileName);
+
     if ( MH_CreateHookApi(L"ntdll", "NtDeviceIoControlFile",
       &hooks::NtDeviceIoControlFile_Hook,
       reinterpret_cast<LPVOID*>(&hooks::NtDeviceIoControlFile_Orig)) != MH_OK ) {
-      logging::SetInitializationError("Unable to hook NtDeviceIoControlFile");
+      spdlog::critical("Unable to hook NtDeviceIoControlFile");
       isError = true;
     }
 
     if ( MH_CreateHookApi(L"kernel32", "CreateFileA", &hooks::CreateFileA_Hook,
       reinterpret_cast<LPVOID*>(&hooks::CreateFileA_Orig)) != MH_OK ) {
-      logging::SetInitializationError("Unable to hook CreateFileA");
+      spdlog::critical("Unable to hook CreateFileA");
       isError = true;
     }
   }
 
   if ( MH_EnableHook(MH_ALL_HOOKS) != MH_OK ) {
-    logging::SetInitializationError("Unable to enable hooks");
+    spdlog::critical("Unable to enable hooks");
     isError = true;
   }
 
   SetEvent(hInjectedEvent);
 
   if ( isError ) {
-    SetupLoggerForInitializationErrors();
     return false;
   }
   return true;

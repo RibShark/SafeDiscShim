@@ -5,8 +5,8 @@
 namespace logging {
   typedef spdlog::level::level_enum level;
 
-  void SetupLoggerIfNeeded();
-  void SetInitializationError(const char*);
+  void SetupLogger();
+  void SetLoggerFileName(const std::string&);
 }
 
 #endif //LOGGER_H

@@ -62,20 +62,8 @@ namespace {
   }
 }
 
-void process::RelaunchGame() {
+void process::RelaunchGame(HANDLE hGameProcess) {
   SetEnvironmentVariableW(L"SAFEDISCSHIM_INJECTED", L"1");
-
-  /* PID of game executable is in command line as argument 1 */
-  const wchar_t* cmdLine = GetCommandLineW();
-  unsigned long pid = 0;
-  if ( swscanf_s(cmdLine, L"\"%*[^\"]\" %lu", &pid) != 1 || !pid )
-    return;
-
-  HANDLE hGameProcess;
-  if ( hGameProcess = OpenProcess(
-    PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
-    false, pid); !hGameProcess )
-    return;
 
   std::wstring commandLine;
   std::wstring workingDirectory;

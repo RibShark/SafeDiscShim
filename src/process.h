@@ -2,7 +2,7 @@
 #define RELAUNCH_H
 
 namespace process {
-  void RelaunchGame();
+  void RelaunchGame(HANDLE);
 }
 
 #endif //RELAUNCH_H
