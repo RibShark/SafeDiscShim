@@ -77,7 +77,8 @@ bool Initialize() {
         "_Cleanup_SafeDiscShim.log";
       logging::SetLoggerFileName(loggerFileName);
 
-      process::RelaunchGame(hGameProcess);
+      Process gameProcess {hGameProcess};
+      gameProcess.Relaunch();
     }
   }
 

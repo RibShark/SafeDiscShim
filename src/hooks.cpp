@@ -95,9 +95,11 @@ BOOL WINAPI hooks::CreateProcessA_Hook(LPCSTR lpApplicationName,
     lpEnvironment, lpCurrentDirectory, lpStartupInfo, lpProcessInformation) )
     return FALSE;
 
+  Process process {lpProcessInformation->hProcess};
+
   spdlog::info("injecting into executable {}", lpApplicationName);
-  process::InjectIntoExecutable(lpProcessInformation->hProcess,
-    lpProcessInformation->hThread, !isCreateSuspended);
+  process.InjectIntoExecutable(lpProcessInformation->hThread,
+    !isCreateSuspended);
 
   return TRUE;
 }
@@ -123,9 +125,11 @@ BOOL WINAPI hooks::CreateProcessW_Hook(LPCWSTR lpApplicationName,
     lpEnvironment, lpCurrentDirectory, lpStartupInfo, lpProcessInformation) )
     return FALSE;
 
+  Process process {lpProcessInformation->hProcess};
+
   spdlog::info(L"injecting into executable {}", lpApplicationName);
-  process::InjectIntoExecutable(lpProcessInformation->hProcess,
-     lpProcessInformation->hThread, !isCreateSuspended);
+  process.InjectIntoExecutable(lpProcessInformation->hThread,
+    !isCreateSuspended);
 
   return TRUE;
 }
