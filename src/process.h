@@ -1,13 +1,21 @@
 #ifndef RELAUNCH_H
 #define RELAUNCH_H
 
-namespace {
-
-}
-
 class Process {
-  /* the definition in winternl.h is missing quite a bit, including, for our
-   * purposes, the current directory, so we redefine it here */
+  /* the definitions in winternl.h for the PEB and process parameters are
+   * missing quite a bit, including, for our purposes, the base address and the
+   * current directory, so we redefine them here */
+  typedef struct PEB {
+    BOOLEAN InheritedAddressSpace;
+    BOOLEAN ReadImageFileExecOptions;
+    BOOLEAN BeingDebugged;
+    BYTE BitField;
+    HANDLE Mutant;
+    PVOID ImageBaseAddress;
+    PPEB_LDR_DATA Ldr;
+    PRTL_USER_PROCESS_PARAMETERS ProcessParameters;
+  } PEB;
+
   typedef struct RTL_USER_PROCESS_PARAMETERS {
     ULONG MaximumLength;
     ULONG Length;
@@ -26,12 +34,14 @@ class Process {
   } RTL_USER_PROCESS_PARAMETERS;
 
   HANDLE hProcess;
+  PVOID entryPoint = nullptr;
   PEB peb {};
   RTL_USER_PROCESS_PARAMETERS processParameters {};
   std::wstring commandLine;
   std::wstring currentDirectory;
 
   bool GetPEB();
+  bool GetEntryPoint();
   bool GetProcessParameters();
   bool GetCommandLine_();
   bool GetCurrentDirectory_();

@@ -7,10 +7,11 @@
 
 Process::Process(HANDLE hProcess) {
   this->hProcess = hProcess;
-  if (!GetPEB()) return;
-  if (!GetProcessParameters()) return;
-  if (!GetCommandLine_()) return;
-  if (!GetCurrentDirectory_()) return;
+  if ( !GetPEB() ) return;
+  if ( !GetEntryPoint() ) return;
+  if ( !GetProcessParameters() ) return;
+  if ( !GetCommandLine_() ) return;
+  if ( !GetCurrentDirectory_() ) return;
 }
 
 bool Process::GetPEB() {
@@ -27,6 +28,24 @@ bool Process::GetPEB() {
     spdlog::critical("Unable to read PEB");
     return false;
   }
+  return true;
+}
+
+bool Process::GetEntryPoint() {
+  auto pImageBase = static_cast<uint8_t*>(peb.ImageBaseAddress);
+
+  LONG addrNtHeaders;
+  PVOID pAddrNtHeaders = pImageBase + offsetof(IMAGE_DOS_HEADER, e_lfanew);
+  ReadProcessMemory(hProcess, pAddrNtHeaders,
+    &addrNtHeaders, sizeof(addrNtHeaders), nullptr);
+
+  PVOID addrEntryPoint = pImageBase + addrNtHeaders +
+    offsetof(IMAGE_NT_HEADERS, OptionalHeader.AddressOfEntryPoint);
+  if ( !ReadProcessMemory(hProcess, addrEntryPoint, &entryPoint,
+    sizeof(entryPoint), nullptr) ) {
+    return false;
+  }
+
   return true;
 }
 
@@ -73,6 +92,17 @@ void Process::InjectIntoExecutable(HANDLE hThread, bool resumeThread) {
     std::to_wstring(GetProcessId(hProcess));
   HANDLE hEvent = CreateEventW(nullptr, true, false, eventName.c_str());
 
+  // get original entry point bytes
+  uint8_t originalBytes[2];
+  ReadProcessMemory(hProcess, entryPoint, originalBytes,
+    sizeof(originalBytes), nullptr);
+
+  // write infinite loop to process entry point and resume main thread
+  constexpr uint8_t infiniteLoop[2] { 0xEB, 0xFE }; // jmp to -2
+  WriteProcessMemory(hProcess, entryPoint, infiniteLoop, sizeof(infiniteLoop),
+    nullptr);
+  ResumeThread(hThread);
+
   // allocate memory for DLL injection
   wchar_t dllName[MAX_PATH];
   GetSystemDirectoryW(dllName, MAX_PATH);
@@ -91,9 +121,13 @@ void Process::InjectIntoExecutable(HANDLE hThread, bool resumeThread) {
   WaitForSingleObject(hEvent, INFINITE);
   CloseHandle(hEvent);
 
-  // now we can resume the main thread if necessary
-  if ( resumeThread )
-    ResumeThread(hThread);
+  // now we can resuspend main thread if necessary
+  if ( !resumeThread )
+    SuspendThread(hThread);
+
+  // rewrite original bytes to entrypoint
+  WriteProcessMemory(hProcess, entryPoint, originalBytes, sizeof(originalBytes),
+    nullptr);
 }
 
 void Process::Relaunch() {
