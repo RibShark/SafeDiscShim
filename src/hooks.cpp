@@ -2,39 +2,8 @@
 
 #include "hooks.h"
 #include "logging.h"
+#include "process.h"
 #include "secdrv_ioctl.h"
-
-namespace {
-  void InjectIntoExecutable(HANDLE hProcess, HANDLE hThread, bool resumeThread) {
-    /* create event that will be signaled when hooks are installed in the
-     * target process */
-    std::wstring eventName = L"Global\\SafeDiscShimInject." +
-      std::to_wstring(GetProcessId(hProcess));
-    HANDLE hEvent = CreateEventW(nullptr, true, false, eventName.c_str());
-
-    // allocate memory for DLL injection
-    wchar_t dllName[MAX_PATH];
-    GetSystemDirectoryW(dllName, MAX_PATH);
-    wcscat_s(dllName, L"\\drvmgt.dll");
-    LPVOID pMemory = VirtualAllocEx(hProcess, nullptr, sizeof(dllName),
-      MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-
-    // write name of DLL to memory and inject
-    const auto pLoadLibraryW = reinterpret_cast<LPTHREAD_START_ROUTINE>(
-    GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "LoadLibraryW"));
-    WriteProcessMemory(hProcess, pMemory, dllName, sizeof(dllName), nullptr);
-    CreateRemoteThread(hProcess, nullptr, 0,
-      pLoadLibraryW, pMemory, 0, nullptr);
-
-    // wait for hooks to be installed
-    WaitForSingleObject(hEvent, INFINITE);
-    CloseHandle(hEvent);
-
-    // now we can resume the main thread if necessary
-    if ( resumeThread )
-      ResumeThread(hThread);
-  }
-}
 
 NTSTATUS NTAPI hooks::NtDeviceIoControlFile_Hook(HANDLE FileHandle,
                                     HANDLE Event,
@@ -46,7 +15,7 @@ NTSTATUS NTAPI hooks::NtDeviceIoControlFile_Hook(HANDLE FileHandle,
                                     ULONG InputBufferLength,
                                     PVOID OutputBuffer,
                                     ULONG OutputBufferLength) {
-  spdlog::trace(L"hooked NtDeviceIoControlFile called");
+  spdlog::trace("hooked NtDeviceIoControlFile called");
 
   /* all IOCTLs will pass through this function, but it's probably fine since
    * secdrv uses unique control codes */
@@ -81,7 +50,7 @@ HANDLE WINAPI hooks::CreateFileA_Hook(LPCSTR lpFileName,
                                DWORD dwCreationDisposition,
                                DWORD dwFlagsAndAttributes,
                                HANDLE hTemplateFile) {
-  spdlog::trace(L"hooked CreateFileA called");
+  spdlog::trace("hooked CreateFileA called");
 
   if ( !lstrcmpiA(lpFileName, R"(\\.\Secdrv)") ||
     !lstrcmpiA(lpFileName, R"(\\.\Global\SecDrv)") ) {
@@ -115,7 +84,7 @@ BOOL WINAPI hooks::CreateProcessA_Hook(LPCSTR lpApplicationName,
                                 LPCSTR lpCurrentDirectory,
                                 LPSTARTUPINFOA lpStartupInfo,
                                 LPPROCESS_INFORMATION lpProcessInformation) {
-  spdlog::trace(L"hooked CreateProcessA called");
+  spdlog::trace("hooked CreateProcessA called");
 
   // if the process isn't created suspended, set the flag so we can inject hooks
   const DWORD isCreateSuspended = dwCreationFlags & CREATE_SUSPENDED;
@@ -127,7 +96,7 @@ BOOL WINAPI hooks::CreateProcessA_Hook(LPCSTR lpApplicationName,
     return FALSE;
 
   spdlog::info("injecting into executable {}", lpApplicationName);
-  InjectIntoExecutable(lpProcessInformation->hProcess,
+  process::InjectIntoExecutable(lpProcessInformation->hProcess,
     lpProcessInformation->hThread, !isCreateSuspended);
 
   return TRUE;
@@ -143,7 +112,7 @@ BOOL WINAPI hooks::CreateProcessW_Hook(LPCWSTR lpApplicationName,
                                 LPCWSTR lpCurrentDirectory,
                                 LPSTARTUPINFOW lpStartupInfo,
                                 LPPROCESS_INFORMATION lpProcessInformation) {
-  spdlog::trace(L"hooked CreateProcessW called");
+  spdlog::trace("hooked CreateProcessW called");
 
   // if the process isn't created suspended, set the flag so we can inject hooks
   const DWORD isCreateSuspended = dwCreationFlags & CREATE_SUSPENDED;
@@ -155,7 +124,7 @@ BOOL WINAPI hooks::CreateProcessW_Hook(LPCWSTR lpApplicationName,
     return FALSE;
 
   spdlog::info(L"injecting into executable {}", lpApplicationName);
-  InjectIntoExecutable(lpProcessInformation->hProcess,
+  process::InjectIntoExecutable(lpProcessInformation->hProcess,
      lpProcessInformation->hThread, !isCreateSuspended);
 
   return TRUE;

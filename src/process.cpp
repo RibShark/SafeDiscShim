@@ -71,6 +71,37 @@ namespace {
   }
 }
 
+void process::InjectIntoExecutable(HANDLE hProcess, HANDLE hThread, bool resumeThread) {
+  spdlog::trace("starting injection into executable");
+  /* create event that will be signaled when hooks are installed in the
+   * target process */
+  std::wstring eventName = L"Global\\SafeDiscShimInject." +
+    std::to_wstring(GetProcessId(hProcess));
+  HANDLE hEvent = CreateEventW(nullptr, true, false, eventName.c_str());
+
+  // allocate memory for DLL injection
+  wchar_t dllName[MAX_PATH];
+  GetSystemDirectoryW(dllName, MAX_PATH);
+  wcscat_s(dllName, L"\\drvmgt.dll");
+  LPVOID pMemory = VirtualAllocEx(hProcess, nullptr, sizeof(dllName),
+    MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+
+  // write name of DLL to memory and inject
+  const auto pLoadLibraryW = reinterpret_cast<LPTHREAD_START_ROUTINE>(
+  GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "LoadLibraryW"));
+  WriteProcessMemory(hProcess, pMemory, dllName, sizeof(dllName), nullptr);
+  CreateRemoteThread(hProcess, nullptr, 0, pLoadLibraryW,
+    pMemory, 0, nullptr);
+
+  // wait for hooks to be installed
+  WaitForSingleObject(hEvent, INFINITE);
+  CloseHandle(hEvent);
+
+  // now we can resume the main thread if necessary
+  if ( resumeThread )
+    ResumeThread(hThread);
+}
+
 void process::RelaunchGame(HANDLE hGameProcess) {
   spdlog::info("Relaunching main game process");
 
