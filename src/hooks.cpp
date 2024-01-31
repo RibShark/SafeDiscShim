@@ -54,6 +54,7 @@ HANDLE WINAPI hooks::CreateFileA_Hook(LPCSTR lpFileName,
 
   if ( !lstrcmpiA(lpFileName, R"(\\.\Secdrv)") ||
     !lstrcmpiA(lpFileName, R"(\\.\Global\SecDrv)") ) {
+    spdlog::trace("CreateFileA: SecDrv opened!");
     /* we need to return a handle when secdrv is opened, so we just open the
      * null device to get an unused handle */
     auto dummyHandle = CreateFileA_Orig(

@@ -46,6 +46,8 @@ bool Process::GetEntryPoint() {
     return false;
   }
 
+  spdlog::debug("Process entry point: {:#x}", reinterpret_cast<DWORD>(entryPoint));
+
   return true;
 }
 
