@@ -212,7 +212,6 @@ BOOL WINAPI DllMain(HINSTANCE /*hinstDLL*/, DWORD fdwReason, LPVOID /*lpvReserve
 
 // Exported functions from the original drvmgt.dll. 100 = success
 extern "C" __declspec(dllexport) int Setup(LPCSTR /*lpSubKey*/, char* /*FullPath*/) {
-  // wait for hooks to be installed to continue
   return 100;
 }
 
