@@ -195,10 +195,25 @@ void RunFromEntryPoint(bool(*funcToCall)()) {
     &shellcodeTrampoline, sizeof(shellcodeTrampoline));
 }
 
+bool IsSafeDiscV1() {
+  // heuristic to detect SafeDisc v1 from the presence of a .ICD file
+  wchar_t exeName[MAX_PATH];
+  GetModuleFileNameW(nullptr, exeName, MAX_PATH);
+  wchar_t* extension = wcsrchr(exeName, L'.');
+  if ( !extension || _wcsicmp(extension, L".exe") != 0 ) {
+    return false;
+  }
+  wcscpy_s(extension, 5, L".icd");
+  if ( GetFileAttributesW(exeName) == INVALID_FILE_ATTRIBUTES )
+    return false;
+  return true;
+}
+
 BOOL WINAPI DllMain(HINSTANCE /*hinstDLL*/, DWORD fdwReason, LPVOID /*lpvReserved*/) {
   switch( fdwReason ) {
   case DLL_PROCESS_ATTACH:
-    RunFromEntryPoint(Initialize);
+    if (!IsSafeDiscV1())
+      RunFromEntryPoint(Initialize);
     break;
   case DLL_THREAD_ATTACH:
   case DLL_THREAD_DETACH:
@@ -212,6 +227,9 @@ BOOL WINAPI DllMain(HINSTANCE /*hinstDLL*/, DWORD fdwReason, LPVOID /*lpvReserve
 
 // Exported functions from the original drvmgt.dll. 100 = success
 extern "C" __declspec(dllexport) int Setup(LPCSTR /*lpSubKey*/, char* /*FullPath*/) {
+  /* will only be called from SafeDisc v1 since the other versions import
+   * drvmgt.dll from %temp% */
+  Initialize();
   return 100;
 }
 
