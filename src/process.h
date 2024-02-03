@@ -34,14 +34,12 @@ class Process {
   } RTL_USER_PROCESS_PARAMETERS;
 
   HANDLE hProcess;
-  PVOID entryPoint = nullptr;
   PEB peb {};
   RTL_USER_PROCESS_PARAMETERS processParameters {};
   std::wstring commandLine;
   std::wstring currentDirectory;
 
   bool GetPEB();
-  bool GetEntryPoint();
   bool GetProcessParameters();
   bool GetCommandLine_();
   bool GetCurrentDirectory_();

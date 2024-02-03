@@ -8,7 +8,6 @@
 Process::Process(HANDLE hProcess) {
   this->hProcess = hProcess;
   if ( !GetPEB() ) return;
-  if ( !GetEntryPoint() ) return;
   if ( !GetProcessParameters() ) return;
   if ( !GetCommandLine_() ) return;
   if ( !GetCurrentDirectory_() ) return;
@@ -28,26 +27,6 @@ bool Process::GetPEB() {
     spdlog::critical("Unable to read PEB");
     return false;
   }
-  return true;
-}
-
-bool Process::GetEntryPoint() {
-  auto pImageBase = static_cast<uint8_t*>(peb.ImageBaseAddress);
-
-  LONG addrNtHeaders;
-  PVOID pAddrNtHeaders = pImageBase + offsetof(IMAGE_DOS_HEADER, e_lfanew);
-  ReadProcessMemory(hProcess, pAddrNtHeaders,
-    &addrNtHeaders, sizeof(addrNtHeaders), nullptr);
-
-  PVOID addrEntryPoint = pImageBase + addrNtHeaders +
-    offsetof(IMAGE_NT_HEADERS, OptionalHeader.AddressOfEntryPoint);
-  if ( !ReadProcessMemory(hProcess, addrEntryPoint, &entryPoint,
-    sizeof(entryPoint), nullptr) ) {
-    return false;
-  }
-
-  spdlog::debug("Process entry point: {:#x}", reinterpret_cast<DWORD>(entryPoint));
-
   return true;
 }
 
