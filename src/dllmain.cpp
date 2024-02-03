@@ -7,7 +7,10 @@
 #include "process.h"
 
 namespace {
-  HANDLE hInjectedEvent;
+  bool(*entryPointHook)();
+  PVOID entryPoint;
+  uint8_t originalEntryPointBytes[5];
+  DWORD prevPageProtection;
 }
 
 bool Initialize() {
@@ -79,6 +82,9 @@ bool Initialize() {
 
       Process gameProcess {hGameProcess};
       gameProcess.Relaunch();
+
+      spdlog::info("Main game process relaunched; exiting cleanup.exe");
+      ExitProcess(0);
     }
   }
 
@@ -109,23 +115,90 @@ bool Initialize() {
   }
   spdlog::trace("Enabled IOCTL hooks");
 
-  SetEvent(hInjectedEvent);
+  std::wstring eventName = L"Global\\SafeDiscShimInject." +
+  std::to_wstring(GetCurrentProcessId());
+
   return true;
 }
 
-BOOL WINAPI DllMain(HINSTANCE /*hinstDLL*/, DWORD fdwReason, LPVOID /*lpvReserved*/) {
-  std::wstring eventName = L"Global\\SafeDiscShimInject." +
-    std::to_wstring(GetCurrentProcessId());
+void RunAndRestoreEP() {
+  // call our function
+  entryPointHook();
 
+  // restore original bytes to entry point
+  memcpy_s(entryPoint, sizeof(originalEntryPointBytes), originalEntryPointBytes,
+    sizeof(originalEntryPointBytes));
+
+  // reprotect entry point memory page
+  VirtualProtect(entryPoint, sizeof(originalEntryPointBytes), prevPageProtection, nullptr);
+}
+
+void RunFromEntryPoint(bool(*funcToCall)()) {
+  // set function to call
+  entryPointHook = funcToCall;
+
+  // get entry point address of exe
+  typedef PIMAGE_NT_HEADERS (NTAPI *RtlImageNtHeader_)(PVOID ModuleAddress);
+  auto RtlImageNtHeader = reinterpret_cast<RtlImageNtHeader_>(
+    GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlImageNtHeader"));
+  const auto exeHandle = reinterpret_cast<uint8_t*>(GetModuleHandleW(nullptr));
+  entryPoint = exeHandle + // on Win32 and Win64, handle == image base
+    RtlImageNtHeader(exeHandle)->OptionalHeader.AddressOfEntryPoint;
+
+  // get original entry point bytes
+  memcpy_s(originalEntryPointBytes, sizeof(originalEntryPointBytes),
+    entryPoint, sizeof(originalEntryPointBytes));
+
+  // prototype shellcode to call function, function should restore entry point
+  constexpr uint8_t shellcodePrototype[] {
+    0xE8, 0x00, 0x00, 0x00 ,0x00, // call RunAndRestoreEP
+    // funcToCall should restore original entry point bytes
+    0xE9, 0x00, 0x00, 0x00, 0x00, // jmp dword ptr [entryPoint]
+  };
+
+  // write shellcode prototype to heap and make executable
+  auto shellcode = static_cast<uint8_t*>(malloc(
+    sizeof(shellcodePrototype))); // this never gets freed, but it's small
+  memcpy_s(shellcode, sizeof(shellcodePrototype), shellcodePrototype,
+    sizeof(shellcodePrototype));
+  VirtualProtect(shellcode, sizeof(shellcodePrototype),
+    PAGE_EXECUTE, nullptr);
+
+  // copy function relative address into shellcode
+  auto funcRelAddr = reinterpret_cast<int32_t>(&RunAndRestoreEP) -
+    reinterpret_cast<int32_t>(shellcode) - 5;
+  memcpy_s(&shellcode[1], sizeof(PVOID), &funcRelAddr, sizeof(PVOID));
+
+  // copy entry point relative address into shellcode
+  auto epRelAddr = reinterpret_cast<int32_t>(entryPoint) -
+    reinterpret_cast<int32_t>(shellcode) - 10;
+  memcpy_s(&shellcode[6], sizeof(entryPoint),
+    &epRelAddr, sizeof(entryPoint));
+
+  // prototype shellcode trampoline to main shellcode
+  uint8_t shellcodeTrampoline[sizeof(originalEntryPointBytes)] {
+    0xE9, 0x00, 0x00, 0x00, 0x00 // jmp shellcode
+  };
+
+  // copy shellcode relative address to trampoline
+  auto shellcodeRelAddr = reinterpret_cast<int32_t>(shellcode) -
+    reinterpret_cast<int32_t>(entryPoint) - 5;
+  memcpy_s(&shellcodeTrampoline[1], sizeof(uintptr_t),
+    &shellcodeRelAddr, sizeof(uintptr_t));
+
+  // set entry point memory page as writable
+  VirtualProtect(entryPoint, sizeof(originalEntryPointBytes),
+    PAGE_EXECUTE_READWRITE, &prevPageProtection);
+
+  // copy trampoline shellcode to entry point
+  memcpy_s(entryPoint, sizeof(shellcodeTrampoline),
+    &shellcodeTrampoline, sizeof(shellcodeTrampoline));
+}
+
+BOOL WINAPI DllMain(HINSTANCE /*hinstDLL*/, DWORD fdwReason, LPVOID /*lpvReserved*/) {
   switch( fdwReason ) {
   case DLL_PROCESS_ATTACH:
-    // create event that will be signaled when hooks are installed
-    hInjectedEvent = CreateEventW(nullptr, true, false, eventName.c_str());
-    CloseHandle(
-      CreateThread(nullptr, 0,
-        [](LPVOID ) -> DWORD { Initialize(); return 0; },
-        nullptr, 0, nullptr)
-    );
+    RunFromEntryPoint(Initialize);
     break;
   case DLL_THREAD_ATTACH:
   case DLL_THREAD_DETACH:
@@ -140,8 +213,6 @@ BOOL WINAPI DllMain(HINSTANCE /*hinstDLL*/, DWORD fdwReason, LPVOID /*lpvReserve
 // Exported functions from the original drvmgt.dll. 100 = success
 extern "C" __declspec(dllexport) int Setup(LPCSTR /*lpSubKey*/, char* /*FullPath*/) {
   // wait for hooks to be installed to continue
-  WaitForSingleObject(hInjectedEvent, INFINITE);
-  CloseHandle(hInjectedEvent);
   return 100;
 }
 

@@ -88,22 +88,6 @@ bool Process::GetCurrentDirectory_() {
 /* PUBLIC */
 void Process::InjectIntoExecutable(HANDLE hThread, bool resumeThread) {
   spdlog::trace("starting injection into executable");
-  /* create event that will be signaled when hooks are installed in the
-   * target process */
-  std::wstring eventName = L"Global\\SafeDiscShimInject." +
-    std::to_wstring(GetProcessId(hProcess));
-  HANDLE hEvent = CreateEventW(nullptr, true, false, eventName.c_str());
-
-  // get original entry point bytes
-  uint8_t originalBytes[2];
-  ReadProcessMemory(hProcess, entryPoint, originalBytes,
-    sizeof(originalBytes), nullptr);
-
-  // write infinite loop to process entry point and resume main thread
-  constexpr uint8_t infiniteLoop[2] { 0xEB, 0xFE }; // jmp to -2
-  WriteProcessMemory(hProcess, entryPoint, infiniteLoop, sizeof(infiniteLoop),
-    nullptr);
-  ResumeThread(hThread);
 
   // allocate memory for DLL injection
   wchar_t dllName[MAX_PATH];
@@ -113,23 +97,16 @@ void Process::InjectIntoExecutable(HANDLE hThread, bool resumeThread) {
     MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 
   // write name of DLL to memory and inject
-  const auto pLoadLibraryW = reinterpret_cast<LPTHREAD_START_ROUTINE>(
+  const auto pLoadLibraryW = reinterpret_cast<PAPCFUNC>(
   GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "LoadLibraryW"));
   WriteProcessMemory(hProcess, pMemory, dllName, sizeof(dllName), nullptr);
-  CreateRemoteThread(hProcess, nullptr, 0, pLoadLibraryW,
-    pMemory, 0, nullptr);
+  /* MSDN: "If an application queues an APC before the thread begins running,
+   * the thread begins by calling the APC function" */
+  QueueUserAPC(pLoadLibraryW, hThread, reinterpret_cast<ULONG_PTR>(pMemory));
 
-  // wait for hooks to be installed
-  WaitForSingleObject(hEvent, INFINITE);
-  CloseHandle(hEvent);
-
-  // now we can resuspend main thread if necessary
-  if ( !resumeThread )
-    SuspendThread(hThread);
-
-  // rewrite original bytes to entrypoint
-  WriteProcessMemory(hProcess, entryPoint, originalBytes, sizeof(originalBytes),
-    nullptr);
+  // now we can resume main thread if necessary
+  if ( resumeThread )
+    ResumeThread(hThread);
 }
 
 void Process::Relaunch() {
@@ -147,7 +124,4 @@ void Process::Relaunch() {
   CreateProcessW(nullptr, const_cast<LPWSTR>(commandLine.c_str()),
     nullptr, nullptr, false, 0,nullptr,
     currentDirectory.c_str(), &si, &pi);
-
-  spdlog::info("Main game process relaunched; exiting cleanup.exe");
-  ExitProcess(0);
 }
