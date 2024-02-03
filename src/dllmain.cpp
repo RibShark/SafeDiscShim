@@ -20,7 +20,7 @@ bool Initialize() {
     spdlog::critical("Unable to initialize MinHook");
     return false;
   }
-  spdlog::trace("Initialized MinHook");
+  spdlog::debug("Initialized MinHook");
 
   // CreateProcess needs to be hooked for both executables
   if ( MH_CreateHookApi(L"kernel32", "CreateProcessA", &hooks::CreateProcessA_Hook,
@@ -28,19 +28,19 @@ bool Initialize() {
     spdlog::critical("Unable to hook CreateProcessA");
     return false;
   }
-  spdlog::trace("Hooked CreateProcessA");
+  spdlog::debug("Hooked CreateProcessA");
 
   if ( MH_CreateHookApi(L"kernel32", "CreateProcessW", &hooks::CreateProcessW_Hook,
       reinterpret_cast<LPVOID*>(&hooks::CreateProcessW_Orig)) != MH_OK ) {
     spdlog::critical("Unable to hook CreateProcessW");
     return false;
   }
-  spdlog::trace("Hooked CreateProcessW");
+  spdlog::debug("Hooked CreateProcessW");
 
   if ( MH_EnableHook(MH_ALL_HOOKS) != MH_OK ) {
     spdlog::critical("Unable to enable CreateProcess hooks");
   }
-  spdlog::trace("Enabled CreateProcess hooks");
+  spdlog::debug("Enabled CreateProcess hooks");
 
   char exeName[MAX_PATH];
   GetModuleFileNameA(nullptr, exeName, MAX_PATH);
