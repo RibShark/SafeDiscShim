@@ -152,7 +152,7 @@ void RunFromEntryPoint(bool(*funcToCall)()) {
   // prototype shellcode to call function, function should restore entry point
   constexpr uint8_t shellcodePrototype[] {
     0xE8, 0x00, 0x00, 0x00 ,0x00, // call RunAndRestoreEP
-    // funcToCall should restore original entry point bytes
+    // RunAndRestoreEP should restore original entry point bytes
     0xE9, 0x00, 0x00, 0x00, 0x00, // jmp dword ptr [entryPoint]
   };
 
