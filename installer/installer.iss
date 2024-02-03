@@ -3,7 +3,7 @@
 [Setup]
 WizardStyle=modern
 AppName=SafeDiscShim
-AppVersion=0.1.0
+AppVersion=0.1.1
 AppId={{97FE301F-3933-4406-97C0-480C21D61118}
 RestartIfNeededByRun=False
 AllowCancelDuringInstall=False
