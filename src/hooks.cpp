@@ -1,9 +1,33 @@
 #include <ntstatus.h>
+#include <winioctl.h>
+#include <ntddscsi.h>
 
 #include "hooks.h"
 #include "logging.h"
 #include "process.h"
 #include "secdrv_ioctl.h"
+
+template <typename T>
+inline T WordSwap(T w) {
+  USHORT temp;
+
+  temp = ((*((USHORT*)&w) & 0xff00) >> 8);
+  temp |= ((*((USHORT*)&w) & 0x00ff) << 8);
+
+  return *((T*)&temp);
+}
+
+template <typename T>
+inline T DWordSwap(T dw) {
+  ULONG temp;
+
+  temp = *((ULONG*)&dw) >> 24;
+  temp |= ((*((ULONG*)&dw) & 0x00FF0000) >> 8);
+  temp |= ((*((ULONG*)&dw) & 0x0000FF00) << 8);
+  temp |= ((*((ULONG*)&dw) & 0x000000FF) << 24);
+
+  return *((T*)&temp);
+}
 
 NTSTATUS NTAPI hooks::NtDeviceIoControlFile_Hook(HANDLE FileHandle,
                                     HANDLE Event,
@@ -19,19 +43,69 @@ NTSTATUS NTAPI hooks::NtDeviceIoControlFile_Hook(HANDLE FileHandle,
 
   /* all IOCTLs will pass through this function, but it's probably fine since
    * secdrv uses unique control codes */
-  if ( IoControlCode == secdrvIoctl::ioctlCodeMain ) {
-    if ( secdrvIoctl::ProcessMainIoctl(InputBuffer,
+  if (IoControlCode == secdrvIoctl::ioctlCodeMain) {
+    if (secdrvIoctl::ProcessMainIoctl(InputBuffer,
                                        InputBufferLength,
                                        OutputBuffer,
-                                       OutputBufferLength) ) {
+                                       OutputBufferLength)) {
       IoStatusBlock->Information = OutputBufferLength;
       IoStatusBlock->Status = STATUS_SUCCESS;
     }
     else IoStatusBlock->Status = STATUS_UNSUCCESSFUL;
   }
-  else if ( IoControlCode == 0xCA002813 ) {
+  else if (IoControlCode == 0xCA002813) {
     spdlog::error("IOCTL 0xCA002813 unhandled (please report!)");
     IoStatusBlock->Status = STATUS_UNSUCCESSFUL;
+  }
+  else if (IoControlCode == IOCTL_SCSI_PASS_THROUGH) {
+    spdlog::trace("IOCTL_SCSI_PASS_THROUGH called", IoControlCode);
+
+    // Remember input data buffer size and sense info size for later
+    PSCSI_PASS_THROUGH inStruct = (PSCSI_PASS_THROUGH)InputBuffer;
+    UCHAR inSenseSize = inStruct->SenseInfoLength;
+    ULONG inDataSize = inStruct->DataTransferLength;
+
+    // Execute the original function
+    NTSTATUS result = NtDeviceIoControlFile_Orig(FileHandle, Event, ApcRoutine, ApcContext,
+      IoStatusBlock, IoControlCode, InputBuffer,
+      InputBufferLength, OutputBuffer,
+      OutputBufferLength);
+
+    // This is a workaround for a bug in Alcohol SATA controller where it doesn't return
+    // "LBA out of range" error for out-of-range sectors (also affects DAEMON Tools).
+    // 
+    // This breaks SafeDisc disc check on later versions since it tries to read track 1 pregap
+    // (negative LBA) to see if the drive supports it. Alcohol doesn't return an error for these sectors
+    // despite not being able to output them so SafeDisc keeps happily reading pregap sectors
+    // and then fails the disc check since Alcohol doesn't actually output valid sector data.
+    if (result == STATUS_SUCCESS && inSenseSize && inDataSize) {
+      UCHAR cmd = inStruct->Cdb[0x00];
+
+      if (cmd == 0x28 || cmd == 0xBE) { // READ (10), READ CD
+        LONG lba = DWordSwap(*(LONG*)(inStruct->Cdb + 2));
+
+        if (lba < 0 && inStruct->ScsiStatus == 0x00 && inStruct->DataTransferLength == 0x00) {
+          // If no error was returned for negative LBA but output buffer is empty, this is bugged
+          // Alcohol behavior and we need to manually write the error.
+          spdlog::info("Incorrect output from disc drive when reading sector {}, "
+            "manually returning LOGICAL_BLOCK_ADDRESS_OUT_OF_RANGE", lba);
+
+          UCHAR* senseBuffer = (UCHAR*)inStruct + inStruct->SenseInfoOffset;
+
+          inStruct->ScsiStatus = 0x02; // CHECK_CONDITION
+          inStruct->SenseInfoLength = std::min(0x12ui8, inSenseSize);
+          memset(senseBuffer, 0x00, inStruct->SenseInfoLength);
+
+          senseBuffer[0x00] = 0xf0; // response code
+          senseBuffer[0x02] = 0x05; // ILLEGAL_REQUEST
+          senseBuffer[0x07] = 0x0a; // length
+          senseBuffer[0x0c] = 0x21; // LOGICAL_BLOCK_ADDRESS_OUT_OF_RANGE
+          senseBuffer[0x0d] = 0x00;
+        }
+      }
+    }
+
+    return result;
   }
   else {
     // not a secdrv request, pass to original function
