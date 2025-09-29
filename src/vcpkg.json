@@ -1,6 +1,6 @@
 {
-  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
-  "builtin-baseline": "2b681d95e08447fde261b4404fbeab324f7d1e5b",
+  "$schema" : "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "builtin-baseline" : "4334d8b4c8916018600212ab4dd4bbdc343065d1",
   "dependencies" : [ {
     "name" : "fmt",
     "version>=" : "10.2.1"
@@ -10,12 +10,15 @@
   }, {
     "name" : "spdlog",
     "version>=" : "1.13.0",
-    "features": ["wchar"]
+    "features" : [ "wchar" ]
   }, {
     "name" : "vcpkg-cmake-config",
     "version>=" : "2022-02-06#1"
   }, {
     "name" : "vcpkg-cmake",
     "version>=" : "2023-05-04"
+  }, {
+    "name" : "phnt",
+    "version>=" : "2025-02-05"
   } ]
 }

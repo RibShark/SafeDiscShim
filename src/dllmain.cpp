@@ -1,16 +1,41 @@
+#include <filesystem>
 #include <psapi.h>
-#include <process.h> // For CRT atexit functions
+
 #include <MinHook.h>
+#include <phnt_windows.h>
+#include <phnt.h>
 
 #include "hooks.h"
 #include "logging.h"
 #include "process.h"
 
-namespace {
+namespace
+{
   bool(*entryPointHook)();
-  PVOID entryPoint;
-  uint8_t originalEntryPointBytes[5];
+  PVOID exceptionHandler;
+  PVOID baseAddress;
+  SIZE_T regionSize;
   DWORD prevPageProtection;
+}
+
+bool IsCleanupExeFirstInject()
+{
+  wchar_t exeName[MAX_PATH];
+  GetModuleFileNameW(nullptr, exeName, MAX_PATH);
+
+  /* HOOKS FOR CLEANUP EXECUTABLE - USED TO RELAUNCH/INJECT GAME EXECUTABLE */
+  if ( wcsstr(exeName, L"~ef7194.tmp") ||
+    wcsstr(exeName, L"~f51e43.tmp") ||
+    wcsstr(exeName, L"~f39a36.tmp") ||
+    wcsstr(exeName, L"~f1d055.tmp") ||
+    wcsstr(exeName, L"~e5d141.tmp") ||
+    wcsstr(exeName, L"~fad052.tmp") ||
+    wcsstr(exeName, L"~e5.0001") )
+  {
+    if ( !GetEnvironmentVariableW(L"SAFEDISCSHIM_INJECTED", nullptr, 0) )
+      return true;
+  }
+  return false;
 }
 
 bool Initialize() {
@@ -46,46 +71,38 @@ bool Initialize() {
   GetModuleFileNameA(nullptr, exeName, MAX_PATH);
 
   /* HOOKS FOR CLEANUP EXECUTABLE - USED TO RELAUNCH/INJECT GAME EXECUTABLE */
-  if ( strstr(exeName, "~ef7194.tmp") ||
-    strstr(exeName, "~f51e43.tmp") ||
-    strstr(exeName, "~f39a36.tmp") ||
-    strstr(exeName, "~f1d055.tmp") ||
-    strstr(exeName, "~e5d141.tmp") ||
-    strstr(exeName, "~fad052.tmp") ||
-    strstr(exeName, "~e5.0001") ) {
+  if ( IsCleanupExeFirstInject() ) {
     /* DLL has been loaded into SafeDisc cleanup, need to relaunch main game
      * executable and inject into that instead */
-    if ( !GetEnvironmentVariableW(L"SAFEDISCSHIM_INJECTED", nullptr, 0) ) {
-      spdlog::info("Cleanup.exe detected, relaunching game and injecting");
+    spdlog::info("Cleanup.exe detected, relaunching game and injecting");
 
-      /* PID of game executable is in command line as argument 1 */
-      const wchar_t* cmdLine = GetCommandLineW();
-      unsigned long pid = 0;
-      if ( swscanf_s(cmdLine, L"\"%*[^\"]\" %lu", &pid) != 1 || !pid ) {
-        spdlog::error("Unable to get game PID");
-        return false;
-      }
-
-      HANDLE hGameProcess;
-      if ( hGameProcess = OpenProcess(
-        PROCESS_TERMINATE | PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
-        false, pid); !hGameProcess ) {
-        spdlog::error("Unable to open game process");
-        return false;
-      }
-
-      // for cleanup executable, log to game folder rather than %temp%
-      GetModuleFileNameExA(hGameProcess, nullptr, exeName, MAX_PATH);
-      const std::string loggerFileName = std::string(exeName) +
-        "_Cleanup_SafeDiscShim.log";
-      logging::SetLoggerFileName(loggerFileName);
-
-      Process gameProcess {hGameProcess};
-      gameProcess.Relaunch();
-
-      spdlog::info("Main game process relaunched; exiting cleanup.exe");
-      ExitProcess(0);
+    /* PID of game executable is in command line as argument 1 */
+    const wchar_t* cmdLine = GetCommandLineW();
+    unsigned long pid = 0;
+    if ( swscanf_s(cmdLine, L"\"%*[^\"]\" %lu", &pid) != 1 || !pid ) {
+      spdlog::error("Unable to get game PID");
+      return false;
     }
+
+    HANDLE hGameProcess;
+    if ( hGameProcess = OpenProcess(
+      PROCESS_TERMINATE | PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
+      false, pid); !hGameProcess ) {
+      spdlog::error("Unable to open game process");
+      return false;
+    }
+
+    // for cleanup executable, log to game folder rather than %temp%
+    GetModuleFileNameExA(hGameProcess, nullptr, exeName, MAX_PATH);
+    const std::string loggerFileName = std::string(exeName) +
+      "_Cleanup_SafeDiscShim.log";
+    logging::SetLoggerFileName(loggerFileName);
+
+    Process gameProcess {hGameProcess};
+    gameProcess.Relaunch();
+
+    spdlog::info("Main game process relaunched; exiting cleanup.exe");
+    ExitProcess(0);
   }
 
   /* HOOKS FOR GAME EXECUTABLE */
@@ -115,106 +132,56 @@ bool Initialize() {
   }
   spdlog::trace("Enabled IOCTL hooks");
 
-  std::wstring eventName = L"Global\\SafeDiscShimInject." +
-  std::to_wstring(GetCurrentProcessId());
-
   return true;
 }
 
-void RunAndRestoreEP() {
-  // call our function
+LONG CALLBACK ExceptionHandler(PEXCEPTION_POINTERS exp)
+{
+  if (exp->ExceptionRecord->ExceptionCode != EXCEPTION_ACCESS_VIOLATION)
+    return EXCEPTION_CONTINUE_SEARCH;
+
+  DWORD dummy;
+  // restore page protection and remove handler
+  VirtualProtect(baseAddress, regionSize, prevPageProtection, &dummy);
+  RemoveVectoredExceptionHandler(exceptionHandler);
+
   entryPointHook();
 
-  // restore original bytes to entry point
-  memcpy_s(entryPoint, sizeof(originalEntryPointBytes), originalEntryPointBytes,
-    sizeof(originalEntryPointBytes));
-
-  // reprotect entry point memory page
-  VirtualProtect(entryPoint, sizeof(originalEntryPointBytes), prevPageProtection, nullptr);
+  return EXCEPTION_CONTINUE_EXECUTION;
 }
 
-void RunFromEntryPoint(bool(*funcToCall)()) {
-  // set function to call
+void RunFromEntryPoint(bool(*funcToCall)())
+{
+  /* Runs code from the entry point by setting page protection on the code section so it triggers an exception
+   * where our code will be executed, and page protection restored */
   entryPointHook = funcToCall;
 
-  // get entry point address of exe
-  typedef PIMAGE_NT_HEADERS (NTAPI *RtlImageNtHeader_)(PVOID ModuleAddress);
-  auto RtlImageNtHeader = reinterpret_cast<RtlImageNtHeader_>(
-    GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlImageNtHeader"));
-  const auto exeHandle = reinterpret_cast<uint8_t*>(GetModuleHandleW(nullptr));
-  entryPoint = exeHandle + // on Win32 and Win64, handle == image base
-    RtlImageNtHeader(exeHandle)->OptionalHeader.AddressOfEntryPoint;
+  HANDLE hModule = GetModuleHandle(nullptr);
+  PIMAGE_NT_HEADERS header = RtlImageNtHeader(hModule);
 
-  // get original entry point bytes
-  memcpy_s(originalEntryPointBytes, sizeof(originalEntryPointBytes),
-    entryPoint, sizeof(originalEntryPointBytes));
+  // get address of entry point so we know what section to
+  DWORD entryPoint = header->OptionalHeader.AddressOfEntryPoint + header->OptionalHeader.ImageBase;
 
-  // prototype shellcode to call function, function should restore entry point
-  constexpr uint8_t shellcodePrototype[] {
-    0xE8, 0x00, 0x00, 0x00 ,0x00, // call RunAndRestoreEP
-    // RunAndRestoreEP should restore original entry point bytes
-    0xE9, 0x00, 0x00, 0x00, 0x00, // jmp dword ptr [entryPoint]
-  };
+  MEMORY_BASIC_INFORMATION memInfo;
+  VirtualQuery(reinterpret_cast<LPCVOID>(entryPoint), &memInfo, sizeof(MEMORY_BASIC_INFORMATION));
 
-  // write shellcode prototype to heap and make executable
-  auto shellcode = static_cast<uint8_t*>(malloc(
-    sizeof(shellcodePrototype))); // this never gets freed, but it's small
-  memcpy_s(shellcode, sizeof(shellcodePrototype), shellcodePrototype,
-    sizeof(shellcodePrototype));
-  VirtualProtect(shellcode, sizeof(shellcodePrototype),
-    PAGE_EXECUTE, nullptr);
+  baseAddress = memInfo.BaseAddress;
+  regionSize = memInfo.RegionSize;
 
-  // copy function relative address into shellcode
-  auto funcRelAddr = reinterpret_cast<int32_t>(&RunAndRestoreEP) -
-    reinterpret_cast<int32_t>(shellcode) - 5;
-  memcpy_s(&shellcode[1], sizeof(PVOID), &funcRelAddr, sizeof(PVOID));
+  exceptionHandler = AddVectoredExceptionHandler(1, ExceptionHandler);
 
-  // copy entry point relative address into shellcode
-  auto epRelAddr = reinterpret_cast<int32_t>(entryPoint) -
-    reinterpret_cast<int32_t>(shellcode) - 10;
-  memcpy_s(&shellcode[6], sizeof(entryPoint),
-    &epRelAddr, sizeof(entryPoint));
-
-  // prototype shellcode trampoline to main shellcode
-  uint8_t shellcodeTrampoline[sizeof(originalEntryPointBytes)] {
-    0xE9, 0x00, 0x00, 0x00, 0x00 // jmp shellcode
-  };
-
-  // copy shellcode relative address to trampoline
-  auto shellcodeRelAddr = reinterpret_cast<int32_t>(shellcode) -
-    reinterpret_cast<int32_t>(entryPoint) - 5;
-  memcpy_s(&shellcodeTrampoline[1], sizeof(uintptr_t),
-    &shellcodeRelAddr, sizeof(uintptr_t));
-
-  // set entry point memory page as writable
-  VirtualProtect(entryPoint, sizeof(originalEntryPointBytes),
-    PAGE_EXECUTE_READWRITE, &prevPageProtection);
-
-  // copy trampoline shellcode to entry point
-  memcpy_s(entryPoint, sizeof(shellcodeTrampoline),
-    &shellcodeTrampoline, sizeof(shellcodeTrampoline));
-}
-
-bool IsSafeDiscV1() {
-  // heuristic to detect SafeDisc v1 from the presence of a .ICD file
-  wchar_t exeName[MAX_PATH];
-  GetModuleFileNameW(nullptr, exeName, MAX_PATH);
-  wchar_t* extension = wcsrchr(exeName, L'.');
-  if ( !extension || _wcsicmp(extension, L".exe") != 0 ) {
-    return false;
-  }
-  wcscpy_s(extension, 5, L".icd");
-  if ( GetFileAttributesW(exeName) == INVALID_FILE_ATTRIBUTES )
-    return false;
-  return true;
+  // prevent execution on entry point so exception handler is called.
+  VirtualProtect(baseAddress, regionSize, PAGE_NOACCESS, &prevPageProtection);
 }
 
 BOOL WINAPI DllMain(HINSTANCE /*hinstDLL*/, DWORD fdwReason, LPVOID /*lpvReserved*/) {
   switch( fdwReason ) {
   case DLL_PROCESS_ATTACH:
-    if (!IsSafeDiscV1())
+    /* Run initialization for for cleanup.exe on first inject. For SafeDisc 1.x EXE this is done though the game calling
+     * Setup(), for SafeDisc 1.x ICD and SafeDisc 2+ main EXE/cleanup EXE (on second inject) this is done through the
+     * injected shellcode. */
+    if (IsCleanupExeFirstInject())
       RunFromEntryPoint(Initialize);
-    break;
   case DLL_THREAD_ATTACH:
   case DLL_THREAD_DETACH:
   case DLL_PROCESS_DETACH:
@@ -224,10 +191,9 @@ BOOL WINAPI DllMain(HINSTANCE /*hinstDLL*/, DWORD fdwReason, LPVOID /*lpvReserve
   return true;
 }
 
-
 // Exported functions from the original drvmgt.dll. 100 = success
 extern "C" __declspec(dllexport) int Setup(LPCSTR /*lpSubKey*/, char* /*FullPath*/) {
-  /* will only be called from SafeDisc v1 since the other versions import
+  /* will only be called from SafeDisc v1 or injection shellcode since the other versions import
    * drvmgt.dll from %temp% */
   Initialize();
   return 100;

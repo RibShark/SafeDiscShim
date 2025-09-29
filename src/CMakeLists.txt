@@ -26,6 +26,9 @@ set_property(TARGET ${PROJECT_NAME} PROPERTY
 configure_file(version.h.in version.h)
 target_include_directories(${PROJECT_NAME} PUBLIC "${PROJECT_BINARY_DIR}")
 
+find_path(PHNT_INCLUDE_DIRS "ntbcd.h")
+target_include_directories(${PROJECT_NAME} PRIVATE ${PHNT_INCLUDE_DIRS})
+
 set_target_properties(${PROJECT_NAME} PROPERTIES
         OUTPUT_NAME "drvmgt")
 

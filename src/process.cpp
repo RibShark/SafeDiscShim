@@ -1,9 +1,21 @@
-#include <winternl.h>
 #include <string>
 #include <vector>
 
+#include <phnt_windows.h>
+#include <phnt.h>
+
 #include "process.h"
 #include "logging.h"
+
+namespace
+{
+  struct InjectStruct {
+    decltype(LoadLibraryA)* pLoadLibraryA;
+    decltype(GetProcAddress)* pGetProcAddress;
+    char dllName[MAX_PATH];
+    char dllFunc[MAX_PATH];
+  };
+}
 
 Process::Process(HANDLE hProcess) {
   this->hProcess = hProcess;
@@ -52,7 +64,7 @@ bool Process::GetCommandLine_() {
 }
 
 bool Process::GetCurrentDirectory_() {
-  UNICODE_STRING &curDir = processParameters.CurrentDirectoryPath;
+  UNICODE_STRING &curDir = processParameters.CurrentDirectory.DosPath;
   std::vector<wchar_t> curDirBuf(curDir.Length / sizeof(wchar_t));
   if ( !ReadProcessMemory(hProcess, curDir.Buffer, curDirBuf.data(),
     curDir.Length, nullptr) ) {
@@ -68,20 +80,30 @@ bool Process::GetCurrentDirectory_() {
 void Process::InjectIntoExecutable(HANDLE hThread, bool resumeThread) {
   spdlog::trace("starting injection into executable");
 
-  // allocate memory for DLL injection
-  wchar_t dllName[MAX_PATH];
-  GetSystemDirectoryW(dllName, MAX_PATH);
-  wcscat_s(dllName, L"\\drvmgt.dll");
-  LPVOID pMemory = VirtualAllocEx(hProcess, nullptr, sizeof(dllName),
+  // allocate memory in process for the struct used by the shellcode and fill it
+  LPVOID pInjectStruct = VirtualAllocEx(hProcess, nullptr, sizeof(InjectStruct),
     MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+  InjectStruct injectStruct = {
+    .pLoadLibraryA = reinterpret_cast<decltype(LoadLibraryA)*>(GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "LoadLibraryA")),
+    .pGetProcAddress = reinterpret_cast<decltype(GetProcAddress)*>(GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "GetProcAddress")),
+    .dllFunc = "Setup"
+  };
+  char dllName[MAX_PATH];
+  GetSystemDirectoryA(dllName, MAX_PATH);
+  strcat_s(dllName, "\\drvmgt.dll");
+  strcpy_s(injectStruct.dllName, dllName);
+  WriteProcessMemory(hProcess, pInjectStruct, &injectStruct, sizeof(injectStruct), nullptr);
 
-  // write name of DLL to memory and inject
-  const auto pLoadLibraryW = reinterpret_cast<PAPCFUNC>(
-  GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "LoadLibraryW"));
-  WriteProcessMemory(hProcess, pMemory, dllName, sizeof(dllName), nullptr);
+  // allocate memory in process for the shellcode and fill it
+  char shellcode[] = "\x55\x89\xE5\x83\xEC\x08\x8B\x45\x08\x83\xC0\x08\x50\x8B\x4D\x08\x8B\x11\xFF\xD2\x89\x45\xFC\x8B"
+                     "\x45\x08\x05\x0C\x01\x00\x00\x50\x8B\x4D\xFC\x51\x8B\x55\x08\x8B\x42\x04\xFF\xD0\x89\x45\xF8\xFF"
+                     "\x55\xF8\x90\x89\xEC\x5D\xC2\x04\x00";
+  LPVOID pShellcode = VirtualAllocEx(hProcess, nullptr, sizeof(shellcode), MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READ);
+  WriteProcessMemory(hProcess, pShellcode, &shellcode, sizeof(shellcode), nullptr);
+
   /* MSDN: "If an application queues an APC before the thread begins running,
    * the thread begins by calling the APC function" */
-  QueueUserAPC(pLoadLibraryW, hThread, reinterpret_cast<ULONG_PTR>(pMemory));
+  QueueUserAPC(reinterpret_cast<PAPCFUNC>(pShellcode), hThread, reinterpret_cast<ULONG_PTR>(pInjectStruct));
 
   // now we can resume main thread if necessary
   if ( resumeThread )
