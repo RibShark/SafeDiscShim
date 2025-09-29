@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+<DATABASE NAME="SafeDiscShim Compatibility Database" DEPRECATED_OS_PLATFORM="X86" ID="{001827e2-fa73-4907-81de-5596bc8e3d37}">
+    <LIBRARY>
+        <LAYER NAME="RedirectDrvMgt" RUNTIME_PLATFORM="X86;X86_WOW" ID="{EF771EC1-0B50-4716-B848-CBB5272886AE}">
+            <SHIM NAME="ForceDelayLoadToSystem" COMMAND_LINE="drvmgt.dll"/>
+        </LAYER>
+    </LIBRARY>
+    <APP NAME="SafeDisc v2.00-v2.4x" ID="{6ea5ea3e-8c99-47d3-8cb5-db2af16b7582}">
+        <EXE NAME="~ef7194.tmp" ID="{26062a33-a4e2-4c38-984a-889245508cf2}" RUNTIME_PLATFORM="X86;X86_WOW">
+            <SHIM NAME="InjectDll" COMMAND_LINE="drvmgt.dll"/>
+        </EXE>
+    </APP>
+    <APP NAME="SafeDisc v2.5x" ID="{16579110-99ce-4b6f-b74f-cf9101eeb825}">
+        <EXE NAME="~f51e43.tmp" ID="{6ea79617-843a-4aeb-91b0-a67997af7277}" RUNTIME_PLATFORM="X86;X86_WOW">
+            <SHIM NAME="InjectDll" COMMAND_LINE="drvmgt.dll"/>
+        </EXE>
+    </APP>
+    <APP NAME="SafeDisc v2.6x" ID="{0df3dfd5-3018-4025-997e-d4375f92144b}">
+        <EXE NAME="~f39a36.tmp" ID="{7c8094cc-321f-42c4-a5d8-b715bcc32253}" RUNTIME_PLATFORM="X86;X86_WOW">
+            <SHIM NAME="InjectDll" COMMAND_LINE="drvmgt.dll"/>
+        </EXE>
+    </APP>
+    <APP NAME="SafeDisc v2.7x" ID="{13d95ccd-c305-4d5c-b514-55d0b5d83501}">
+        <EXE NAME="~f1d055.tmp" ID="{66a12de7-6fe6-4649-a621-bf37b59d9543}" RUNTIME_PLATFORM="X86;X86_WOW">
+            <SHIM NAME="InjectDll" COMMAND_LINE="drvmgt.dll"/>
+        </EXE>
+    </APP>
+    <APP NAME="SafeDisc v2.8x-3.10" ID="{d2ce4ab4-5cc8-4168-ad96-6a8b9197c57f}">
+        <EXE NAME="~e5d141.tmp" ID="{cc7fa799-593b-4248-98e5-2b5be8382457}" RUNTIME_PLATFORM="X86;X86_WOW">
+            <SHIM NAME="InjectDll" COMMAND_LINE="drvmgt.dll"/>
+        </EXE>
+    </APP>
+    <APP NAME="SafeDisc v3.15" ID="{124fd5ce-f604-47f0-b899-7b6391b33b54}">
+        <EXE NAME="~fad052.tmp" ID="{9f10bcb8-4659-4aa1-83f7-113e5523a045}" RUNTIME_PLATFORM="X86;X86_WOW">
+            <SHIM NAME="InjectDll" COMMAND_LINE="drvmgt.dll"/>
+        </EXE>
+    </APP>
+    <APP NAME="SafeDisc v3.20+" ID="{8f440cab-855e-44f7-b277-edebd9860e0b}">
+        <EXE NAME="~e5.0001" ID="{e9e3087e-b07a-4c70-ae31-446cf2ddd118}" RUNTIME_PLATFORM="X86;X86_WOW">
+            <SHIM NAME="InjectDll" COMMAND_LINE="drvmgt.dll"/>
+        </EXE>
+    </APP>
+</DATABASE>

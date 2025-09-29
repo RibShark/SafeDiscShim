@@ -1,9 +1,10 @@
 #define SDB_GUID "{001827e2-fa73-4907-81de-5596bc8e3d37}"
+#define DEBUG
 
 [Setup]
 WizardStyle=modern
 AppName=SafeDiscShim
-AppVersion=0.1.1
+AppVersion=0.9.0
 AppId={{97FE301F-3933-4406-97C0-480C21D61118}
 RestartIfNeededByRun=False
 AllowCancelDuringInstall=False
@@ -19,10 +20,14 @@ OutputDir=..\src\build\debug
 #else
 OutputDir=..\src\build\release
 #endif
-ArchitecturesInstallIn64BitMode=x64
+ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayName=SafeDiscShim
 UninstallDisplayIcon={uninstallexe}
 InfoBeforeFile=X:\SafeDiscShim\installer\license.rtf
+ChangesEnvironment=yes
+
+[Registry]
+Root: HKLM; Subkey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environment"; ValueType: string; ValueName: "__COMPAT_LAYER"; ValueData: "RedirectDrvMgt"
 
 [Messages]
 ReadyLabel1=

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.26)
 
 set(VCPKG_TARGET_TRIPLET "x86-windows-static")
-project(SafeDiscShim VERSION 0.1.1
+project(SafeDiscShim VERSION 0.9.0
         DESCRIPTION ""
         LANGUAGES CXX)
 
